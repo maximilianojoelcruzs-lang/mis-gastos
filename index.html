@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mis Gastos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  --bg:#EDF0EA; --surface:#FFFFFF; --ink:#17251F; --muted:#6C7A70;
+  --line:#DEE4D9; --green:#1E6E52; --greensoft:#E6F1E9;
+  --gold:#B4802A; --goldsoft:#F6EBD6; --clay:#B0453A; --claysoft:#F6E0DC; --mint:#2C9C6E;
+  font-family:'Inter',system-ui,sans-serif; color:var(--ink);
+  background:var(--bg); -webkit-font-smoothing:antialiased;
+}
+.mg-root{min-height:100vh;padding:22px 16px 40px;max-width:640px;margin:0 auto;}
+.mg-loading{padding:60px 0;text-align:center;color:var(--muted);font-size:15px;}
+
+.mg-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:12px;}
+.mg-brand{display:flex;align-items:center;gap:12px;}
+.mg-logo{width:38px;height:38px;border-radius:11px;background:var(--green);color:#fff;display:grid;place-items:center;flex:none;}
+.mg-header h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:22px;line-height:1;margin:0;letter-spacing:-0.02em;}
+.mg-header p{margin:3px 0 0;font-size:12.5px;color:var(--muted);}
+.mg-save{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--mint);opacity:0;transition:opacity .25s;font-weight:600;}
+.mg-save.on{opacity:1;}
+
+.mg-months{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:14px;}
+.mg-tab{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  padding:8px 15px;border-radius:999px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;
+  transition:all .15s;white-space:nowrap;}
+.mg-tab:hover{border-color:var(--green);color:var(--green);}
+.mg-tab.active{background:var(--green);border-color:var(--green);color:#fff;}
+.mg-tab.add{display:inline-flex;align-items:center;gap:4px;border-style:dashed;color:var(--green);}
+.mg-tab.add:hover{background:var(--greensoft);}
+
+.mg-card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:14px;
+  box-shadow:0 1px 2px rgba(23,37,31,.04);}
+
+.mg-monthhead{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+.mg-label{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:19px;color:var(--ink);
+  border:none;background:transparent;outline:none;flex:1;min-width:0;padding:2px 0;border-bottom:2px solid transparent;letter-spacing:-0.01em;}
+.mg-label:focus{border-bottom-color:var(--greensoft);}
+.mg-delmonth{border:none;background:transparent;color:var(--muted);cursor:pointer;padding:4px;border-radius:8px;display:grid;place-items:center;}
+.mg-delmonth:hover{background:var(--claysoft);color:var(--clay);}
+
+.mg-hero{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:6px 2px 16px;border-bottom:1px solid var(--line);margin-bottom:16px;}
+.mg-heroval{display:flex;flex-direction:column;gap:2px;}
+.mg-herolabel{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;}
+.mg-heroval strong{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:34px;line-height:1.05;letter-spacing:-0.02em;}
+.mg-heroval strong.pos{color:var(--green);}
+.mg-heroval strong.neg{color:var(--clay);}
+.mg-herosub{font-size:12px;color:var(--muted);}
+.mg-bar{flex:1;min-width:180px;}
+.mg-bartrack{height:12px;border-radius:999px;background:var(--greensoft);overflow:hidden;}
+.mg-barfill{height:100%;background:var(--green);border-radius:999px;transition:width .4s ease;}
+.mg-barfill.over{background:var(--clay);}
+.mg-barlegend{display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--muted);}
+.mg-barlegend .dot{display:inline-block;width:8px;height:8px;border-radius:3px;margin-right:5px;vertical-align:middle;}
+.mg-barlegend .dot.spent{background:var(--green);}
+.mg-barlegend .dot.save{background:var(--greensoft);border:1px solid var(--green);}
+
+.mg-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.mg-stat{border-radius:13px;padding:11px 12px;display:flex;flex-direction:column;gap:5px;min-width:0;}
+.mg-stat span{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--muted);}
+.mg-stat strong{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:17px;letter-spacing:-0.01em;overflow-wrap:anywhere;}
+.mg-stat.income{background:var(--goldsoft);}
+.mg-stat.income span{color:var(--gold);}
+.mg-stat.spent{background:#F1F4EF;}
+.mg-stat.save{background:var(--greensoft);}
+.mg-stat.save strong{color:var(--green);}
+.mg-stat.over{background:var(--claysoft);}
+.mg-stat.over span,.mg-stat.over strong{color:var(--clay);}
+.mg-statinput{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:17px;color:var(--gold);
+  border:none;background:transparent;outline:none;width:100%;padding:0;border-bottom:2px solid transparent;letter-spacing:-0.01em;}
+.mg-statinput:focus{border-bottom-color:var(--gold);}
+
+.mg-listhead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;}
+.mg-listhead h2{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;margin:0;}
+.mg-listhead span{font-size:12px;color:var(--muted);}
+
+.mg-list{display:flex;flex-direction:column;}
+.mg-empty{text-align:center;color:var(--muted);font-size:13.5px;padding:22px 0;}
+.mg-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);}
+.mg-row:last-child{border-bottom:none;}
+.mg-name{flex:1;min-width:0;border:none;background:transparent;outline:none;font-size:14.5px;color:var(--ink);
+  font-family:inherit;padding:5px 6px;border-radius:8px;font-weight:500;}
+.mg-name:focus{background:#F1F4EF;}
+.mg-name::placeholder{color:#AAB3A9;}
+.mg-pct{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;width:34px;text-align:right;flex:none;}
+.mg-amount{width:118px;flex:none;text-align:right;border:1px solid transparent;background:transparent;outline:none;
+  font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14.5px;color:var(--ink);padding:6px 9px;border-radius:9px;}
+.mg-amount:hover{border-color:var(--line);}
+.mg-amount:focus{border-color:var(--green);background:var(--greensoft);}
+.mg-del{border:none;background:transparent;color:#B9C2B7;cursor:pointer;padding:6px;border-radius:8px;display:grid;place-items:center;flex:none;}
+.mg-del:hover{background:var(--claysoft);color:var(--clay);}
+
+.mg-add{margin-top:12px;width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--green);
+  padding:11px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;}
+.mg-add:hover{border-color:var(--green);background:var(--greensoft);}
+
+.mg-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px;padding:0 4px;flex-wrap:wrap;}
+.mg-footer span{font-size:11.5px;color:var(--muted);}
+.mg-footer .right{display:flex;gap:6px;}
+.mg-reset,.mg-export{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;font-family:inherit;
+  display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:8px;font-weight:500;}
+.mg-export:hover{color:var(--green);background:var(--greensoft);}
+.mg-reset:hover{color:var(--clay);background:var(--claysoft);}
+
+@media(max-width:480px){
+  .mg-stats{grid-template-columns:1fr;}
+  .mg-heroval strong{font-size:29px;}
+  .mg-amount{width:104px;}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+const STORAGE_KEY = "mis_gastos_v1";
+const clp = (n) => "$" + Math.round(n || 0).toLocaleString("es-CL");
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+const seedData = () => ({
+  activeId: "dic2024",
+  months: [{
+    id: "dic2024", label: "Diciembre", income: 940000,
+    items: [
+      { id: "i1", name: "Luz", amount: 64000 },
+      { id: "i2", name: "Entel", amount: 31000 },
+      { id: "i3", name: "Comida", amount: 38000 },
+      { id: "i4", name: "CMR", amount: 120000 },
+      { id: "i5", name: "Internet", amount: 15000 },
+      { id: "i6", name: "Agua", amount: 10000 },
+      { id: "i7", name: "Casa", amount: 150000 },
+      { id: "i8", name: "Feria", amount: 100000 },
+      { id: "i9", name: "Match", amount: 100000 },
+    ],
+  }],
+});
+
+const load = () => {
+  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : seedData(); }
+  catch { return seedData(); }
+};
+
+// --- iconos (SVG en linea) ---
+const svg = (children, size=16) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+);
+const IWallet = ({size}) => svg(<><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-3a2 2 0 0 1 0-4h4"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-3"/></>, size);
+const IDown = ({size}) => svg(<><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></>, size);
+const IPig = ({size}) => svg(<><path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5z"/><path d="M2 9v1c0 1.1.9 2 2 2h1"/><path d="M16 11h0"/></>, size);
+const IPlus = ({size}) => svg(<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>, size);
+const ITrash = ({size}) => svg(<><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>, size);
+const IX = ({size}) => svg(<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>, size);
+const IRotate = ({size}) => svg(<><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></>, size);
+const ICheck = ({size}) => svg(<polyline points="20 6 9 17 4 12"/>, size);
+const IDown2 = ({size}) => svg(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>, size);
+
+function CurrencyInput({ value, onChange, className, placeholder }) {
+  const [focused, setFocused] = useState(false);
+  const display = focused ? (value ? String(value) : "") : clp(value);
+  return (
+    <input className={className} inputMode="numeric" value={display} placeholder={placeholder}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+      onChange={(e) => { const d = e.target.value.replace(/\D/g, ""); onChange(d ? parseInt(d,10) : 0); }} />
+  );
+}
+
+function App() {
+  const [data, setData] = useState(load);
+  const [saved, setSaved] = useState(false);
+  const first = useRef(true);
+
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); setSaved(true);
+      const t = setTimeout(() => setSaved(false), 1400); return () => clearTimeout(t);
+    } catch (e) { console.error(e); }
+  }, [data]);
+
+  const month = data.months.find((m) => m.id === data.activeId) || data.months[0];
+  const spent = month.items.reduce((s, it) => s + (it.amount || 0), 0);
+  const saldo = (month.income || 0) - spent;
+  const over = saldo < 0;
+  const spentPct = month.income > 0 ? Math.min(100, (spent/month.income)*100) : (spent>0?100:0);
+
+  const update = (fn) => setData((d) => {
+    const next = JSON.parse(JSON.stringify(d));
+    fn(next, next.months.find((m) => m.id === next.activeId)); return next;
+  });
+  const addItem = () => update((_, m) => m.items.push({ id: uid(), name: "", amount: 0 }));
+  const removeItem = (id) => update((_, m) => { m.items = m.items.filter((it) => it.id !== id); });
+  const setItem = (id, k, v) => update((_, m) => { const it = m.items.find((x)=>x.id===id); if(it) it[k]=v; });
+  const setIncome = (v) => update((_, m) => { m.income = v; });
+  const setLabel = (v) => update((_, m) => { m.label = v; });
+
+  const addMonth = () => setData((d) => {
+    const next = JSON.parse(JSON.stringify(d));
+    const cur = next.months.find((m)=>m.id===next.activeId) || next.months[0];
+    const id = uid();
+    next.months.push({ id, label: "Nuevo mes", income: cur ? cur.income : 0,
+      items: cur ? cur.items.map((it)=>({id:uid(),name:it.name,amount:0})) : [] });
+    next.activeId = id; return next;
+  });
+  const deleteMonth = () => {
+    if (data.months.length <= 1) return;
+    if (!confirm('¿Eliminar "' + month.label + '"?')) return;
+    setData((d) => { const next = JSON.parse(JSON.stringify(d));
+      next.months = next.months.filter((m)=>m.id!==next.activeId);
+      next.activeId = next.months[0].id; return next; });
+  };
+  const resetAll = () => {
+    if (!confirm("Esto borra todos los meses y vuelve a los datos de ejemplo. ¿Continuar?")) return;
+    setData(seedData());
+  };
+  const exportJSON = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "mis-gastos-respaldo.json"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="mg-root">
+      <header className="mg-header">
+        <div className="mg-brand">
+          <span className="mg-logo"><IWallet size={20} /></span>
+          <div><h1>Mis Gastos</h1><p>Control mensual en pesos chilenos</p></div>
+        </div>
+        <span className={"mg-save " + (saved ? "on" : "")}><ICheck size={13} /> Guardado</span>
+      </header>
+
+      <div className="mg-months">
+        {data.months.map((m) => (
+          <button key={m.id} className={"mg-tab " + (m.id===data.activeId?"active":"")}
+            onClick={() => setData((d) => ({ ...d, activeId: m.id }))}>{m.label || "Sin nombre"}</button>
+        ))}
+        <button className="mg-tab add" onClick={addMonth}><IPlus size={15} /> Mes</button>
+      </div>
+
+      <section className="mg-card">
+        <div className="mg-monthhead">
+          <input className="mg-label" value={month.label} placeholder="Nombre del mes"
+            onChange={(e) => setLabel(e.target.value)} />
+          {data.months.length > 1 && (
+            <button className="mg-delmonth" onClick={deleteMonth} title="Eliminar mes"><IX size={16} /></button>
+          )}
+        </div>
+
+        <div className="mg-hero">
+          <div className="mg-heroval">
+            <span className="mg-herolabel">{over ? "Te falta" : "Ahorro del mes"}</span>
+            <strong className={over ? "neg" : "pos"}>{clp(Math.abs(saldo))}</strong>
+            <span className="mg-herosub">Ingreso − gastos</span>
+          </div>
+          <div className="mg-bar">
+            <div className="mg-bartrack">
+              <div className={"mg-barfill " + (over?"over":"")} style={{ width: spentPct + "%" }} />
+            </div>
+            <div className="mg-barlegend">
+              <span><i className="dot spent" /> Gastado {month.income>0?Math.round(spentPct)+"%":""}</span>
+              {!over && <span><i className="dot save" /> Libre {month.income>0?Math.round(100-spentPct)+"%":""}</span>}
+            </div>
+          </div>
+        </div>
+
+        <div className="mg-stats">
+          <div className="mg-stat income">
+            <span><IWallet size={14} /> Ingreso</span>
+            <CurrencyInput className="mg-statinput" value={month.income} onChange={setIncome} placeholder="$0" />
+          </div>
+          <div className="mg-stat spent">
+            <span><IDown size={14} /> Total gastos</span><strong>{clp(spent)}</strong>
+          </div>
+          <div className={"mg-stat " + (over?"over":"save")}>
+            <span><IPig size={14} /> {over ? "Déficit" : "Ahorro"}</span><strong>{clp(Math.abs(saldo))}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="mg-card">
+        <div className="mg-listhead">
+          <h2>Gastos</h2>
+          <span>{month.items.length} {month.items.length===1?"ítem":"ítems"}</span>
+        </div>
+        <div className="mg-list">
+          {month.items.length === 0 && <div className="mg-empty">Aún no hay gastos. Agrega el primero abajo.</div>}
+          {month.items.map((it) => {
+            const pct = month.income>0 ? (it.amount/month.income)*100 : 0;
+            return (
+              <div className="mg-row" key={it.id}>
+                <input className="mg-name" value={it.name} placeholder="Nombre del gasto"
+                  onChange={(e)=>setItem(it.id,"name",e.target.value)} />
+                <span className="mg-pct">{pct>=0.5?Math.round(pct)+"%":""}</span>
+                <CurrencyInput className="mg-amount" value={it.amount}
+                  onChange={(v)=>setItem(it.id,"amount",v)} placeholder="$0" />
+                <button className="mg-del" onClick={()=>removeItem(it.id)} title="Eliminar"><ITrash size={15} /></button>
+              </div>
+            );
+          })}
+        </div>
+        <button className="mg-add" onClick={addItem}><IPlus size={16} /> Agregar gasto</button>
+      </section>
+
+      <footer className="mg-footer">
+        <span>Tus datos se guardan en este navegador.</span>
+        <div className="right">
+          <button className="mg-export" onClick={exportJSON}><IDown2 size={13} /> Respaldo</button>
+          <button className="mg-reset" onClick={resetAll}><IRotate size={13} /> Restablecer</button>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
