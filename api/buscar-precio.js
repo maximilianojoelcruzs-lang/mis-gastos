@@ -8,7 +8,7 @@
 
 // Si algún día este modelo diera error de "no encontrado",
 // cámbialo por otro modelo Flash vigente (ej: "gemini-3.5-flash").
-const MODELO = "gemini-2.5-flash";
+const MODELO = "gemini-3.8-flash";
 
 export default async function handler(req, res) {
   const q = ((req.query && req.query.q) || "").toString().trim();
