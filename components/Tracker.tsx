@@ -6,14 +6,15 @@ import { getSupabase } from "@/lib/supabase/client";
 import type { AppData } from "@/lib/types";
 import GastosTab from "./GastosTab";
 import MarketTab from "./MarketTab";
+import PanelTab from "./PanelTab";
 import Splash from "./Splash";
 import WishlistTab from "./WishlistTab";
-import { ICart, ICheck, IGift, ILogout, ISpin, IWallet, IX } from "./icons";
+import { IChart, ICart, ICheck, IGift, ILogout, ISpin, IWallet, IX } from "./icons";
 
 export type Update = (mutate: (draft: AppData) => void) => void;
 export type SetData = (next: AppData | ((prev: AppData) => AppData)) => void;
 
-type Tab = "gastos" | "market" | "wish";
+type Tab = "panel" | "gastos" | "market" | "wish";
 type SaveState = "" | "saving" | "saved" | "error";
 
 export default function Tracker({ session }: { session: Session }) {
@@ -21,7 +22,7 @@ export default function Tracker({ session }: { session: Session }) {
   const [data, setDataState] = useState<AppData | null>(null);
   const [loadError, setLoadError] = useState("");
   const [save, setSave] = useState<SaveState>("");
-  const [tab, setTab] = useState<Tab>("gastos");
+  const [tab, setTab] = useState<Tab>("panel");
   const skipSave = useRef(true);
 
   useEffect(() => {
@@ -74,6 +75,8 @@ export default function Tracker({ session }: { session: Session }) {
   const email = session.user.email || "";
   const month = data.months.find((m) => m.id === data.activeId) || data.months[0];
   const tabs: { id: Tab; label: string; hint: string; icon: typeof IWallet; count: number; title: string; desc: string }[] = [
+    { id: "panel", label: "Panel", hint: "Resumen y gráficos", icon: IChart, count: data.months.length,
+      title: "Panel de control", desc: "Tus finanzas de un vistazo: ahorro acumulado, meses y en qué se va la plata." },
     { id: "gastos", label: "Gastos", hint: "Presupuesto mensual", icon: IWallet, count: month.items.length,
       title: "Control de gastos", desc: "Tu ingreso, tus cuentas y cuánto te queda libre este mes." },
     { id: "market", label: "Supermercado", hint: "Lista de compra", icon: ICart,
@@ -149,11 +152,12 @@ export default function Tracker({ session }: { session: Session }) {
         <div className="fx-content fx-enter" key={tab}>
           <div className="fx-pagehead">
             <div>
-              <div className="fx-eyebrow">Módulo {String(tabs.indexOf(current) + 1).padStart(2, "0")} · {current.count} {current.count === 1 ? "activo" : "activos"}</div>
+              <div className="fx-eyebrow">Módulo {String(tabs.indexOf(current) + 1).padStart(2, "0")} · {current.count} {current.id === "panel" ? (current.count === 1 ? "mes" : "meses") : current.count === 1 ? "activo" : "activos"}</div>
               <h1>{current.title}</h1>
               <p>{current.desc}</p>
             </div>
           </div>
+          {tab === "panel" && <PanelTab data={data} />}
           {tab === "gastos" && <GastosTab data={data} setData={setData} update={update} />}
           {tab === "market" && <MarketTab data={data} update={update} />}
           {tab === "wish" && <WishlistTab data={data} update={update} />}

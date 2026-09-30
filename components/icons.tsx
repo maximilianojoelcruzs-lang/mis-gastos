@@ -110,3 +110,18 @@ export const ISpin = ({ size = 16 }: P) => (
     <path d="M21 12a9 9 0 1 1-6.2-8.5" />
   </svg>
 );
+export const IChart = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 3v18h18" />
+    <rect x="7" y="11" width="3" height="6" rx="1" />
+    <rect x="12" y="7" width="3" height="10" rx="1" />
+    <rect x="17" y="13" width="3" height="4" rx="1" />
+  </Svg>
+);
+export const ITable = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+    <line x1="9" y1="10" x2="9" y2="20" />
+  </Svg>
+);
