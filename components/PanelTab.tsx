@@ -1,13 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { summarizeMonth } from "@/lib/data";
+import { CATEGORIES, categoryOf, currentPeriod, summarizeMonth, todayISO } from "@/lib/data";
 import { clp } from "@/lib/format";
-import type { AppData } from "@/lib/types";
-import { ICart, IGift, IPig, ITable } from "./icons";
+import type { AppData, MonthSummary } from "@/lib/types";
+import { IArrowDown, IArrowUp, ITable, ITrend } from "./icons";
 
-// Paleta validada (fondo oscuro): cian = gastos, violeta = ingresos.
-const C_SPENT = "#0FA0BC";
-const C_INCOME = "#8B5CFF";
+const INK = "#EDEDEF";
 
 const compact = (n: number) => {
   const a = Math.abs(n);
@@ -23,10 +21,10 @@ function niceMax(v: number) {
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
 }
 
-// Barra con extremo de datos redondeado (4px) y base recta.
-function barPath(x: number, y: number, w: number, h: number, horizontal = false) {
-  const r = Math.min(4, horizontal ? h / 2 : w / 2, horizontal ? w : h);
+/** Rectángulo con extremo redondeado (4px) y base recta. */
+function barPath(x: number, y: number, w: number, h: number, horizontal = false, round = true) {
   if (h <= 0 || w <= 0) return "";
+  const r = round ? Math.min(4, horizontal ? h / 2 : w / 2, horizontal ? w : h) : 0;
   if (horizontal)
     return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
   return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
@@ -44,16 +42,16 @@ function useWidth<T extends HTMLElement>() {
   return [ref, w] as const;
 }
 
-type Tip = { x: number; y: number; title: string; rows: { color?: string; label: string; value: string }[] };
+type Tip = { x: number; y: number; title: string; rows: { color?: string; label: string; value: string; total?: boolean }[] };
 
 function Tooltip({ tip }: { tip: Tip | null }) {
   if (!tip) return null;
   return (
-    <div className="fx-tip" style={{ left: tip.x, top: tip.y }}>
+    <div className="tip" style={{ left: tip.x, top: tip.y }}>
       <b>{tip.title}</b>
       {tip.rows.map((r) => (
-        <div key={r.label} className="row">
-          {r.color && <i style={{ background: r.color }} />}
+        <div key={r.label} className={"r " + (r.total ? "total" : "")}>
+          {r.color && <i className="dot" style={{ background: r.color }} />}
           <span>{r.label}</span>
           <strong>{r.value}</strong>
         </div>
@@ -62,52 +60,66 @@ function Tooltip({ tip }: { tip: Tip | null }) {
   );
 }
 
-function MonthsChart({ months }: { months: ReturnType<typeof summarizeMonth>[] }) {
+/** Columnas apiladas por categoría + marca del ingreso de cada mes. */
+function MonthsChart({ months }: { months: MonthSummary[] }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
-  const H = 240, top = 14, bottom = 28, left = 52, right = 8;
+  const H = 240, top = 12, bottom = 26, left = 50, right = 4, GAP = 2;
   const plotW = Math.max(0, width - left - right);
   const plotH = H - top - bottom;
   const max = niceMax(Math.max(...months.map((m) => Math.max(m.income, m.spent)), 0));
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
   const band = months.length ? plotW / months.length : 0;
-  const barW = Math.max(4, Math.min(24, (band - 18) / 2));
+  const barW = Math.max(6, Math.min(24, band * 0.45));
   const y = (v: number) => top + plotH - (v / max) * plotH;
 
-  const tip: Tip | null =
-    hover === null
-      ? null
-      : {
-          x: Math.min(Math.max(left + band * hover + band / 2, 80), Math.max(80, width - 80)),
-          y: Math.max(y(Math.max(months[hover].income, months[hover].spent)) - 10, 96),
-          title: months[hover].label || "Sin nombre",
-          rows: [
-            { color: C_INCOME, label: "Ingreso", value: clp(months[hover].income) },
-            { color: C_SPENT, label: "Gastos", value: clp(months[hover].spent) },
-            { label: months[hover].balance < 0 ? "Déficit" : "Ahorro", value: clp(Math.abs(months[hover].balance)) },
-          ],
-        };
+  const tip: Tip | null = (() => {
+    if (hover === null) return null;
+    const m = months[hover];
+    const cats = CATEGORIES.filter((c) => m.byCategory[c.id] > 0).reverse();
+    return {
+      x: Math.min(Math.max(left + band * hover + band / 2, 95), Math.max(95, width - 95)),
+      y: Math.max(Math.min(y(Math.max(m.income, m.spent)), y(0)) - 10, 60),
+      title: m.label || "Sin nombre",
+      rows: [
+        ...cats.map((c) => ({ color: c.color, label: c.label, value: clp(m.byCategory[c.id]) })),
+        { label: "Total gastos", value: clp(m.spent), total: true },
+        { label: "Ingreso", value: clp(m.income) },
+      ],
+    };
+  })();
 
   return (
-    <div ref={ref} className="fx-chart" onMouseLeave={() => setHover(null)}>
+    <div ref={ref} className="chart" onMouseLeave={() => setHover(null)}>
       {width > 0 && (
-        <svg width={width} height={H} role="img" aria-label="Ingresos y gastos por mes">
+        <svg width={width} height={H} role="img" aria-label="Gastos por categoría e ingreso de cada mes">
           {ticks.map((t) => (
             <g key={t}>
-              <line x1={left} x2={width - right} y1={y(t)} y2={y(t)} className="fx-grid-line" />
-              <text x={left - 8} y={y(t)} dy="0.32em" textAnchor="end" className="fx-axis">{compact(t)}</text>
+              <line x1={left} x2={width - right} y1={y(t)} y2={y(t)} className="gridline" />
+              <text x={left - 8} y={y(t)} dy="0.32em" textAnchor="end" className="axis">{compact(t)}</text>
             </g>
           ))}
           {months.map((m, i) => {
             const cx = left + band * i + band / 2;
-            const hi = hover === i;
+            const cats = CATEGORIES.filter((c) => m.byCategory[c.id] > 0);
+            let acc = 0;
+            const label = m.label || "—";
             return (
-              <g key={m.id} opacity={hover === null || hi ? 1 : 0.45}>
-                {hi && <rect x={left + band * i + 2} y={top} width={band - 4} height={plotH} rx={8} className="fx-band" />}
-                <path d={barPath(cx - barW - 1, y(m.income), barW, y(0) - y(m.income))} fill={C_INCOME} />
-                <path d={barPath(cx + 1, y(m.spent), barW, y(0) - y(m.spent))} fill={C_SPENT} />
-                <text x={cx} y={H - 8} textAnchor="middle" className="fx-axis">
-                  {(m.label || "—").length > 9 ? (m.label || "—").slice(0, 8) + "…" : m.label || "—"}
+              <g key={m.id} opacity={hover === null || hover === i ? 1 : 0.4}>
+                {hover === i && <rect x={left + band * i + 2} y={top} width={band - 4} height={plotH} rx={6} className="hoverband" />}
+                {cats.map((c, k) => {
+                  const v = m.byCategory[c.id];
+                  const y0 = y(acc), y1 = y(acc + v);
+                  acc += v;
+                  const h = y0 - y1 - (k < cats.length - 1 ? GAP : 0);
+                  return <path key={c.id} d={barPath(cx - barW / 2, y1, barW, Math.max(h, 1), false, k === cats.length - 1)} fill={c.color} />;
+                })}
+                {m.income > 0 && (
+                  <line x1={cx - barW / 2 - 6} x2={cx + barW / 2 + 6} y1={y(m.income)} y2={y(m.income)}
+                    stroke={INK} strokeWidth={2} strokeLinecap="round" />
+                )}
+                <text x={cx} y={H - 8} textAnchor="middle" className="axis">
+                  {label.length > 10 ? label.slice(0, 9) + "…" : label}
                 </text>
                 <rect x={left + band * i} y={top} width={band} height={plotH + bottom} fill="transparent"
                   onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} />
@@ -121,114 +133,127 @@ function MonthsChart({ months }: { months: ReturnType<typeof summarizeMonth>[] }
   );
 }
 
-function TopExpenses({ items, income }: { items: { id: string; name: string; amount: number }[]; income: number }) {
+function TopExpenses({ items }: { items: { id: string; name: string; amount: number; color: string }[] }) {
   const [ref, width] = useWidth<HTMLDivElement>();
-  const [hover, setHover] = useState<number | null>(null);
-  const rowH = 34, barH = 14, labelW = Math.min(120, width * 0.34), valueW = 78;
-  const H = items.length * rowH;
+  const rowH = 32, barH = 12, labelW = Math.min(120, width * 0.36), valueW = 70;
   const max = Math.max(...items.map((i) => i.amount), 1);
   const plotW = Math.max(0, width - labelW - valueW);
-
-  const tip: Tip | null =
-    hover === null
-      ? null
-      : {
-          x: Math.min(Math.max(labelW + 80, 80), Math.max(80, width - 80)),
-          y: hover * rowH + 2,
-          title: items[hover].name || "Sin nombre",
-          rows: [
-            { color: C_SPENT, label: "Monto", value: clp(items[hover].amount) },
-            ...(income > 0
-              ? [{ label: "Del ingreso", value: Math.round((items[hover].amount / income) * 100) + "%" }]
-              : []),
-          ],
-        };
-
   return (
-    <div ref={ref} className="fx-chart" onMouseLeave={() => setHover(null)}>
+    <div ref={ref} className="chart">
       {width > 0 && (
-        <svg width={width} height={H} role="img" aria-label="Gastos más grandes del mes">
+        <svg width={width} height={items.length * rowH} role="img" aria-label="Gastos más grandes del mes">
           {items.map((it, i) => {
             const w = (it.amount / max) * plotW;
             const yy = i * rowH + (rowH - barH) / 2;
+            const name = it.name || "Sin nombre";
             return (
-              <g key={it.id} opacity={hover === null || hover === i ? 1 : 0.45}>
-                <text x={0} y={yy + barH / 2} dy="0.32em" className="fx-axis strong">
-                  {(it.name || "Sin nombre").length > 14 ? it.name.slice(0, 13) + "…" : it.name || "Sin nombre"}
-                </text>
-                <path d={barPath(labelW, yy, w, barH, true)} fill={C_SPENT} />
-                <text x={labelW + w + 8} y={yy + barH / 2} dy="0.32em" className="fx-axis value">{compact(it.amount)}</text>
-                <rect x={0} y={i * rowH} width={width} height={rowH} fill="transparent"
-                  onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} />
+              <g key={it.id}>
+                <title>{`${name}: ${clp(it.amount)}`}</title>
+                <text x={0} y={yy + barH / 2} dy="0.32em" className="axis ink">{name.length > 14 ? name.slice(0, 13) + "…" : name}</text>
+                <path d={barPath(labelW, yy, w, barH, true)} fill={it.color} />
+                <text x={labelW + w + 8} y={yy + barH / 2} dy="0.32em" className="axis">{compact(it.amount)}</text>
               </g>
             );
           })}
         </svg>
       )}
-      <Tooltip tip={tip} />
     </div>
   );
 }
 
+type Range = "3" | "6" | "year" | "all";
+
 export default function PanelTab({ data }: { data: AppData }) {
   const [table, setTable] = useState(false);
-  const months = data.months.map(summarizeMonth);
+  const [range, setRange] = useState<Range>("6");
+
+  const all = data.months.map(summarizeMonth);
+  const year = currentPeriod().slice(0, 4);
+  const months =
+    range === "all" ? all
+      : range === "year" ? all.filter((m) => m.period.startsWith(year))
+        : all.slice(-Number(range));
+
   const totals = months.reduce(
     (t, m) => ({ income: t.income + m.income, spent: t.spent + m.spent, balance: t.balance + m.balance }),
     { income: 0, spent: 0, balance: 0 }
   );
   const rate = totals.income > 0 ? Math.round((totals.balance / totals.income) * 100) : 0;
-  const active = data.months.find((m) => m.id === data.activeId) || data.months[0];
-  const cur = summarizeMonth(active);
-  const paidPct = cur.spent > 0 ? (cur.paid / cur.spent) * 100 : 0;
-  const top = [...active.items].filter((i) => i.amount > 0).sort((a, b) => b.amount - a.amount).slice(0, 6);
+  const usedCats = CATEGORIES.filter((c) => months.some((m) => m.byCategory[c.id] > 0));
 
-  const market = data.market.items;
-  const marketTotal = market.reduce((s, i) => s + i.price * (i.qty || 1), 0);
-  const wish = data.wishlist.items.filter((i) => !i.done);
-  const wishTotal = wish.reduce((s, i) => s + i.price, 0);
+  // Mes activo vs anterior
+  const idx = Math.max(0, data.months.findIndex((m) => m.id === data.activeId));
+  const active = data.months[idx];
+  const cur = all[idx];
+  const prev = idx > 0 ? all[idx - 1] : null;
+  const pctChange = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
+  const deltas = prev
+    ? CATEGORIES.map((c) => ({ c, diff: cur.byCategory[c.id] - prev.byCategory[c.id], pct: pctChange(cur.byCategory[c.id], prev.byCategory[c.id]) }))
+        .filter((d) => d.diff !== 0)
+        .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+        .slice(0, 4)
+    : [];
+  const totalPct = prev ? pctChange(cur.spent, prev.spent) : null;
+
+  // Proyección de cierre
+  const history = all.slice(Math.max(0, idx - 3), idx);
+  const avgPrev = history.length ? history.reduce((s, m) => s + m.spent, 0) / history.length : 0;
+  const projectedSpent = Math.max(cur.spent, avgPrev);
+  const projected = cur.income - projectedSpent;
+  const isCurrent = active.period === currentPeriod();
+  let perDay: { days: number; amount: number } | null = null;
+  if (isCurrent) {
+    const [y, m, d] = todayISO().split("-").map(Number);
+    const days = new Date(y, m, 0).getDate() - d + 1;
+    perDay = { days, amount: Math.max(0, cur.balance) / days };
+  }
+
+  const top = [...active.items]
+    .filter((i) => i.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 6)
+    .map((i) => ({ id: i.id, name: i.name, amount: i.amount, color: categoryOf(i.category).color }));
 
   return (
     <div>
-      <section className="mg-card fx-kpis">
-        <div className="fx-kpi hero">
-          <span>{totals.balance < 0 ? "Déficit acumulado" : "Ahorro acumulado"}</span>
-          <strong className={totals.balance < 0 ? "neg" : "pos"}>{clp(Math.abs(totals.balance))}</strong>
-          <small>{months.length} {months.length === 1 ? "mes registrado" : "meses registrados"}</small>
+      <div className="chips" style={{ marginBottom: 16 }}>
+        {([["3", "3 meses"], ["6", "6 meses"], ["year", "Este año"], ["all", "Todo"]] as [Range, string][]).map(([id, l]) => (
+          <button key={id} className={"chip " + (range === id ? "on" : "")} onClick={() => setRange(id)}>{l}</button>
+        ))}
+      </div>
+
+      <section className="card">
+        <div className="hero">
+          <div>
+            <div className="l">{totals.balance < 0 ? "Déficit en el período" : "Ahorro en el período"}</div>
+            <div className={"v " + (totals.balance < 0 ? "neg" : "")}>{clp(Math.abs(totals.balance))}</div>
+          </div>
+          <span className="muted">{months.length} {months.length === 1 ? "mes" : "meses"}</span>
         </div>
-        <div className="fx-kpi">
-          <span><i style={{ background: C_INCOME }} /> Ingresos</span>
-          <strong>{compact(totals.income)}</strong>
-        </div>
-        <div className="fx-kpi">
-          <span><i style={{ background: C_SPENT }} /> Gastos</span>
-          <strong>{compact(totals.spent)}</strong>
-        </div>
-        <div className="fx-kpi">
-          <span><IPig size={12} /> Tasa de ahorro</span>
-          <strong>{rate}%</strong>
+        <div className="stats">
+          <div className="stat"><span className="l">Ingresos</span><span className="v">{compact(totals.income)}</span></div>
+          <div className="stat"><span className="l">Gastos</span><span className="v">{compact(totals.spent)}</span></div>
+          <div className="stat"><span className="l">Tasa de ahorro</span><span className="v">{rate}%</span></div>
+          <div className="stat"><span className="l">Gasto promedio</span><span className="v">{compact(months.length ? totals.spent / months.length : 0)}</span></div>
         </div>
       </section>
 
-      <section className="mg-card">
-        <div className="fx-charthead">
+      <section className="card">
+        <div className="card-h">
           <div>
-            <h2>Ingresos vs gastos por mes</h2>
-            <div className="fx-legend">
-              <span><i style={{ background: C_INCOME }} /> Ingreso</span>
-              <span><i style={{ background: C_SPENT }} /> Gastos</span>
-            </div>
+            <h2>Gastos por mes</h2>
+            <div className="sub">Por categoría · la línea blanca es el ingreso del mes</div>
           </div>
-          <button className="mg-shopbtn" onClick={() => setTable((t) => !t)}>
+          <button className="btn sm" onClick={() => setTable((t) => !t)}>
             <ITable size={13} /> {table ? "Ver gráfico" : "Ver tabla"}
           </button>
         </div>
-        {table ? (
-          <div className="fx-tablewrap">
-            <table className="fx-table">
-              <thead>
-                <tr><th>Mes</th><th>Ingreso</th><th>Gastos</th><th>Pagado</th><th>Ahorro</th></tr>
-              </thead>
+        {months.length === 0 ? (
+          <div className="empty">No hay meses en este rango.</div>
+        ) : table ? (
+          <div className="table-wrap">
+            <table className="t">
+              <thead><tr><th>Mes</th><th>Ingreso</th><th>Gastos</th><th>Pagado</th><th>Ahorro</th></tr></thead>
               <tbody>
                 {months.map((m) => (
                   <tr key={m.id}>
@@ -243,49 +268,82 @@ export default function PanelTab({ data }: { data: AppData }) {
             </table>
           </div>
         ) : (
-          <MonthsChart months={months} />
+          <>
+            <MonthsChart months={months} />
+            <div className="legend" style={{ marginTop: 14 }}>
+              {usedCats.map((c) => (
+                <div key={c.id}><i className="dot" style={{ background: c.color }} /><span className="n">{c.label}</span></div>
+              ))}
+              <div><i style={{ width: 14, height: 2, background: INK, borderRadius: 2, flex: "none" }} /><span className="n">Ingreso</span></div>
+            </div>
+          </>
         )}
       </section>
 
-      <div className="fx-split">
-        <section className="mg-card">
-          <div className="fx-charthead">
+      <div className="grid2" style={{ marginBottom: 16 }}>
+        <section className="card">
+          <div className="card-h">
             <div>
-              <h2>Gastos más grandes</h2>
-              <p className="fx-sub">{active.label || "Mes activo"} · top {top.length}</p>
+              <h2>Comparado con el mes anterior</h2>
+              <div className="sub">{active.label}{prev ? ` vs ${prev.label}` : ""}</div>
             </div>
           </div>
-          {top.length ? <TopExpenses items={top} income={active.income} /> : <div className="mg-empty">Sin gastos este mes.</div>}
+          {!prev ? (
+            <div className="muted" style={{ fontSize: 13 }}>Necesitas al menos dos meses para comparar.</div>
+          ) : (
+            <>
+              <p style={{ margin: "0 0 12px", fontSize: 13.5, lineHeight: 1.5 }}>
+                {totalPct === null || totalPct === 0
+                  ? "Gastaste lo mismo que el mes anterior."
+                  : <>Gastaste <b>{Math.abs(totalPct)}% {totalPct > 0 ? "más" : "menos"}</b> que en {prev.label} ({clp(Math.abs(cur.spent - prev.spent))}).</>}
+              </p>
+              {deltas.map(({ c, diff, pct }) => (
+                <div className="delta" key={c.id}>
+                  <span className="n"><i className="dot" style={{ background: c.color }} /> {c.label}</span>
+                  <span className={"v " + (diff > 0 ? "up" : "down")}>
+                    {diff > 0 ? <IArrowUp size={12} /> : <IArrowDown size={12} />}
+                    {pct === null ? "Nuevo este mes" : `${Math.abs(pct)}% ${diff > 0 ? "más" : "menos"}`}
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
         </section>
 
-        <section className="mg-card">
-          <div className="fx-charthead">
+        <section className="card">
+          <div className="card-h">
             <div>
-              <h2>Estado de pagos</h2>
-              <p className="fx-sub">{active.label || "Mes activo"}</p>
+              <h2>Proyección de cierre</h2>
+              <div className="sub">{active.label}</div>
             </div>
+            <ITrend size={16} />
           </div>
-          <div className="fx-meter">
-            <strong>{Math.round(paidPct)}%</strong>
-            <span>pagado</span>
+          <div className="num" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-.02em", color: projected < 0 ? "var(--bad)" : undefined }}>
+            {projected < 0 ? "−" : ""}{clp(Math.abs(projected))}
           </div>
-          <div className="mg-bartrack"><div className="mg-barfill" style={{ width: paidPct + "%" }} /></div>
-          <div className="fx-meterrows">
-            <div><span>Pagado</span><b>{clp(cur.paid)}</b></div>
-            <div><span>Por pagar</span><b>{clp(cur.pending)}</b></div>
-          </div>
-          <div className="fx-minis">
-            <div className="fx-mini">
-              <ICart size={15} />
-              <div><span>Supermercado</span><b>{clp(marketTotal)}</b></div>
+          <p className="muted" style={{ margin: "6px 0 14px", fontSize: 12.5, lineHeight: 1.5 }}>
+            {history.length && avgPrev > cur.spent
+              ? `Tus gastos registrados son ${clp(cur.spent)}, pero en los últimos ${history.length} ${history.length === 1 ? "mes" : "meses"} gastaste ${clp(Math.round(avgPrev))} en promedio. Si se repite, cerrarías con este saldo.`
+              : "Saldo al cierre si pagas todo lo registrado y no agregas más gastos."}
+          </p>
+          {perDay && (
+            <div className="stats" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              <div className="stat"><span className="l">Días restantes</span><span className="v">{perDay.days}</span></div>
+              <div className="stat"><span className="l">Disponible por día</span><span className="v">{clp(Math.round(perDay.amount))}</span></div>
             </div>
-            <div className="fx-mini">
-              <IGift size={15} />
-              <div><span>Próximas compras</span><b>{clp(wishTotal)}</b></div>
-            </div>
-          </div>
+          )}
         </section>
       </div>
+
+      <section className="card">
+        <div className="card-h">
+          <div>
+            <h2>Gastos más grandes</h2>
+            <div className="sub">{active.label} · color según categoría</div>
+          </div>
+        </div>
+        {top.length ? <TopExpenses items={top} /> : <div className="empty">Sin gastos este mes.</div>}
+      </section>
     </div>
   );
 }

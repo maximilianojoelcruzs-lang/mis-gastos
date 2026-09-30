@@ -1,7 +1,6 @@
 "use client";
 // Cliente del backend propio: añade el token de Supabase a cada llamada.
 import type { AppData } from "./types";
-import type { PriceLookup } from "./gemini";
 import { getSupabase } from "./supabase/client";
 
 async function authFetch(path: string, init: RequestInit = {}) {
@@ -22,6 +21,4 @@ export const api = {
   loadData: (): Promise<{ content: AppData }> => authFetch("/api/data"),
   saveData: (content: AppData) =>
     authFetch("/api/data", { method: "PUT", body: JSON.stringify({ content }) }),
-  buscarPrecio: (q: string): Promise<PriceLookup> =>
-    authFetch("/api/buscar-precio?q=" + encodeURIComponent(q)),
 };

@@ -1,7 +1,18 @@
 # Mis Gastos
 
 App para controlar gastos del mes, lista del supermercado y próximas compras.
-Hecha con **Next.js (App Router + TypeScript)**, **Supabase** (login y datos) y **Gemini** (búsqueda de precios con IA).
+Hecha con **Next.js (App Router + TypeScript)** y **Supabase** (login y datos).
+
+## Funciones
+
+- **Panel:** ahorro del período con filtro (3/6 meses, este año, todo), gastos por mes apilados por categoría,
+  comparación con el mes anterior, proyección de cierre y disponible por día.
+- **Gastos:** varios ingresos por mes, meta de ahorro, categorías con colores, gastos fijos que se copian
+  al crear el mes siguiente, fecha de vencimiento con alertas y compras en cuotas que avanzan solas.
+- **Supermercado:** listas guardadas, historial de precios por producto y botón para pasar el total a Gastos.
+- **Próximas compras:** prioridad, fecha objetivo con cuenta regresiva, ahorro por objetivo y Google Shopping.
+
+Los datos guardados con versiones anteriores se migran solos al abrir la app (`normalize()` en `lib/data.ts`).
 
 ## Estructura
 
@@ -11,13 +22,11 @@ app/
   api/
     data/route.ts          GET/PUT  datos del usuario (valida y normaliza en el servidor)
     resumen/route.ts       GET      totales por mes, supermercado y próximas compras
-    buscar-precio/route.ts GET      precio más bajo en Chile vía Gemini (requiere sesión)
     health/route.ts        GET      estado del servicio
 components/                → pantallas y pestañas (Gastos, Supermercado, Próximas compras)
 lib/
   data.ts                  → datos de ejemplo, normalización y cálculos (compartido front/back)
   api.ts                   → cliente del backend (agrega el token de sesión)
-  gemini.ts                → integración con Gemini
   supabase/                → cliente del navegador y validación de sesión en el servidor
 ```
 
@@ -28,15 +37,14 @@ El servidor usa ese token para hablar con Supabase, así que las políticas RLS 
 
 ```bash
 npm install
-cp .env.example .env.local   # completa GEMINI_API_KEY
+cp .env.example .env.local
 npm run dev                  # http://localhost:3000
 ```
 
 ## Despliegue en Vercel
 
 1. En el proyecto de Vercel, *Settings → General → Framework Preset*: **Next.js**.
-2. *Settings → Environment Variables*: `GEMINI_API_KEY` (y opcionalmente `NEXT_PUBLIC_SUPABASE_URL`,
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `GEMINI_MODEL`).
+2. *Settings → Environment Variables* (opcional): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 3. Vuelve a desplegar.
 
 ## Ideas para seguir expandiendo el backend

@@ -1,20 +1,38 @@
 "use client";
-import { useState } from "react";
-import { api } from "@/lib/api";
+import { daysUntil } from "@/lib/data";
 import { clp, openUrl, uid } from "@/lib/format";
-import type { AppData, PriceResult, WishItem } from "@/lib/types";
+import type { AppData, Priority, WishItem } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
-import { ICheck, IExternal, IPlus, ISearch, ISpark, ISpin, ITrash, IX } from "./icons";
+import { ICalendar, ICheck, IExternal, IPlus, ISearch, ITrash, IX } from "./icons";
 import type { Update } from "./Tracker";
 
-type AiState = { loading?: boolean; error?: string; result?: PriceResult; raw?: string };
+const PRIORITIES: { id: Priority; label: string }[] = [
+  { id: "alta", label: "Urgente" },
+  { id: "media", label: "Puede esperar" },
+  { id: "baja", label: "Capricho" },
+];
+const RANK: Record<Priority, number> = { alta: 0, media: 1, baja: 2 };
+
+function countdown(date: string) {
+  const d = daysUntil(date);
+  if (d === null) return null;
+  if (d < 0) return { tone: "bad", text: d === -1 ? "Fue ayer" : `Pasó hace ${-d} días` };
+  if (d === 0) return { tone: "warn", text: "Es hoy" };
+  if (d <= 7) return { tone: "warn", text: d === 1 ? "Falta 1 día" : `Faltan ${d} días` };
+  return { tone: "", text: `Faltan ${d} días` };
+}
 
 export default function WishlistTab({ data, update }: { data: AppData; update: Update }) {
-  const [ai, setAi] = useState<Record<string, AiState>>({});
-  const items = data.wishlist.items;
+  const items = [...data.wishlist.items].sort(
+    (a, b) =>
+      Number(a.done) - Number(b.done) ||
+      RANK[a.priority] - RANK[b.priority] ||
+      (a.date || "9999").localeCompare(b.date || "9999")
+  );
   const pending = items.filter((i) => !i.done);
   const pendingTotal = pending.reduce((s, i) => s + (Number(i.price) || 0), 0);
-  const ready = items.length - pending.length;
+  const savedTotal = pending.reduce((s, i) => s + Math.min(i.saved || 0, i.price || i.saved || 0), 0);
+  const savedPct = pendingTotal > 0 ? Math.min(100, (savedTotal / pendingTotal) * 100) : 0;
 
   const onItem = (id: string, fn: (it: WishItem) => void) =>
     update((d) => {
@@ -22,124 +40,118 @@ export default function WishlistTab({ data, update }: { data: AppData; update: U
       if (it) fn(it);
     });
 
-  const searchAi = async (it: WishItem) => {
-    if (!it.name) return;
-    setAi((s) => ({ ...s, [it.id]: { loading: true } }));
-    try {
-      const r = await api.buscarPrecio(it.name);
-      setAi((s) => ({ ...s, [it.id]: "result" in r ? { result: r.result } : { raw: r.raw } }));
-    } catch (e) {
-      setAi((s) => ({ ...s, [it.id]: { error: (e as Error).message || "No se pudo consultar la IA." } }));
-    }
-  };
-
-  const applyPrice = (id: string, r: PriceResult) =>
-    onItem(id, (it) => {
-      if (r.precio_clp) it.price = Number(r.precio_clp) || 0;
-      if (r.url) {
-        if (it.urls.length === 1 && !it.urls[0]) it.urls[0] = r.url;
-        else if (!it.urls.includes(r.url)) it.urls.push(r.url);
-      }
-    });
-
   return (
     <div>
-      <section className="mg-card">
-        <div className="mg-hero">
-          <div className="mg-heroval">
-            <span className="mg-herolabel">Estimado por comprar</span>
-            <strong className="pos">{clp(pendingTotal)}</strong>
-            <span className="mg-herosub">
-              {pending.length} {pending.length === 1 ? "pendiente" : "pendientes"}
-              {ready > 0 ? ` · ${ready} listos` : ""}
-            </span>
+      <section className="card">
+        <div className="hero" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="l">Por comprar</div>
+            <div className="v">{clp(pendingTotal)}</div>
           </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="l" style={{ justifyContent: "flex-end" }}>Ya ahorrado</div>
+            <div className="num" style={{ fontSize: 20, fontWeight: 500 }}>{clp(savedTotal)}</div>
+          </div>
+        </div>
+        <div className="bar"><i style={{ width: savedPct + "%" }} /></div>
+        <div className="bar-l">
+          <span>{pending.length} {pending.length === 1 ? "pendiente" : "pendientes"}</span>
+          <span>{Math.round(savedPct)}% ahorrado</span>
         </div>
       </section>
 
-      <section className="mg-card">
-        <div className="mg-listhead">
-          <h2>Próximas compras y regalos</h2>
-          <span>{items.length} {items.length === 1 ? "ítem" : "ítems"}</span>
+      <section className="card">
+        <div className="card-h">
+          <div>
+            <h2>Próximas compras y regalos</h2>
+            <div className="sub">Ordenadas por prioridad y fecha.</div>
+          </div>
+          <button className="btn sm"
+            onClick={() => update((d) => {
+              d.wishlist.items.unshift({ id: uid(), name: "", price: 0, urls: [""], done: false, priority: "media", date: "", saved: 0 });
+            })}>
+            <IPlus size={13} /> Agregar
+          </button>
         </div>
-        {items.length === 0 && <div className="mg-empty">Agrega algo que quieras comprar o regalar más adelante.</div>}
+
+        {items.length === 0 && <div className="empty">Agrega algo que quieras comprar o regalar más adelante.</div>}
+
         {items.map((it) => {
           const urls = it.urls.length ? it.urls : [""];
-          const a = ai[it.id];
+          const cd = it.date && !it.done ? countdown(it.date) : null;
+          const pct = it.price > 0 ? Math.min(100, ((it.saved || 0) / it.price) * 100) : 0;
           return (
-            <div className={"mg-wcard " + (it.done ? "done" : "")} key={it.id}>
-              <div className="mg-wtop">
-                <button className={"mg-check " + (it.done ? "on" : "")} onClick={() => onItem(it.id, (x) => { x.done = !x.done; })}
+            <div className={"wish " + (it.done ? "done" : "")} key={it.id}>
+              <div className="wish-top">
+                <button className={"check " + (it.done ? "on" : "")}
+                  onClick={() => onItem(it.id, (x) => { x.done = !x.done; })}
                   title={it.done ? "Marcar como pendiente" : "Marcar como comprado"}>
-                  {it.done && <ICheck size={13} />}
+                  {it.done && <ICheck size={12} />}
                 </button>
-                <input className="mg-wname" value={it.name} placeholder="¿Qué quieres comprar o regalar?"
+                <input className="bare name" value={it.name} placeholder="¿Qué quieres comprar o regalar?"
                   onChange={(e) => onItem(it.id, (x) => { x.name = e.target.value; })} />
-                <CurrencyInput className="mg-wprice" value={it.price} placeholder="$0"
+                <CurrencyInput className="bare amount" value={it.price} placeholder="$0"
                   onChange={(v) => onItem(it.id, (x) => { x.price = v; })} />
-                <button className="mg-iconbtn danger" title="Eliminar"
+                <button className="btn ghost icon sm danger" title="Eliminar"
                   onClick={() => update((d) => { d.wishlist.items = d.wishlist.items.filter((i) => i.id !== it.id); })}>
-                  <ITrash size={15} />
+                  <ITrash size={14} />
                 </button>
               </div>
-              {urls.map((url, idx) => (
-                <div className="mg-urlrow" key={idx}>
-                  <input className="mg-url" value={url} placeholder="https://enlace-de-la-oferta.cl/..."
-                    onChange={(e) => onItem(it.id, (x) => { if (!x.urls.length) x.urls = [""]; x.urls[idx] = e.target.value; })} />
-                  <button className="mg-iconbtn" onClick={() => openUrl(url)} title="Abrir enlace"><IExternal size={14} /></button>
-                  {urls.length > 1 && (
-                    <button className="mg-iconbtn danger" title="Quitar enlace"
-                      onClick={() => onItem(it.id, (x) => { x.urls.splice(idx, 1); if (!x.urls.length) x.urls = [""]; })}>
-                      <IX size={14} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button className="mg-waddurl" onClick={() => onItem(it.id, (x) => { x.urls.push(""); })}>
-                <IPlus size={13} /> Agregar otro enlace
-              </button>
-              <div className="mg-wactions">
-                <button className="mg-shopbtn" disabled={!it.name}
-                  onClick={() => openUrl("https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(it.name))}>
-                  <ISearch size={13} /> Google Shopping
-                </button>
-                <button className="mg-shopbtn ai" disabled={!it.name || !!a?.loading} onClick={() => searchAi(it)}>
-                  {a?.loading ? <ISpin size={13} /> : <ISpark size={13} />} Buscar con IA
-                </button>
-              </div>
-              {a && (a.error || a.result || a.raw) && (
-                <div className="mg-airesult">
-                  {a.error && <span className="err">{a.error}</span>}
-                  {a.result && (
-                    <div>
-                      <div className="line">
-                        <b>{clp(a.result.precio_clp)}</b>
-                        {a.result.tienda ? " · " + a.result.tienda : ""}
-                      </div>
-                      {a.result.nota && <div className="nota">{a.result.nota}</div>}
-                      <div className="acts">
-                        {a.result.url && (
-                          <button onClick={() => openUrl(a.result!.url!)}><IExternal size={12} /> Ver oferta</button>
-                        )}
-                        <button onClick={() => applyPrice(it.id, a.result!)}><ICheck size={12} /> Usar este precio</button>
-                      </div>
+
+              {!it.done && (
+                <>
+                  <div className="wish-opts">
+                    <div className="seg" role="group" aria-label="Prioridad">
+                      {PRIORITIES.map((p) => (
+                        <button key={p.id} className={it.priority === p.id ? "on" : ""}
+                          onClick={() => onItem(it.id, (x) => { x.priority = p.id; })}>
+                          {p.label}
+                        </button>
+                      ))}
                     </div>
-                  )}
-                  {!a.result && a.raw && <div className="nota">{a.raw}</div>}
-                </div>
+                    <input className="field sm" type="date" value={it.date} title="Fecha objetivo o del regalo"
+                      onChange={(e) => onItem(it.id, (x) => { x.date = e.target.value; })} />
+                    {cd && <span className={"badge " + cd.tone}><ICalendar size={11} /> {cd.text}</span>}
+                  </div>
+
+                  <div className="wish-save">
+                    <span>Llevo</span>
+                    <CurrencyInput className="field sm amount" value={it.saved} placeholder="$0"
+                      onChange={(v) => onItem(it.id, (x) => { x.saved = v; })} />
+                    <div className="bar"><i className={pct >= 100 ? "good" : ""} style={{ width: pct + "%" }} /></div>
+                    <span className="num">{it.price > 0 ? Math.round(pct) + "%" : "—"}</span>
+                  </div>
+
+                  {urls.map((url, idx) => (
+                    <div className="url" key={idx}>
+                      <input className="field sm" value={url} placeholder="https://enlace-de-la-oferta.cl/..."
+                        onChange={(e) => onItem(it.id, (x) => { if (!x.urls.length) x.urls = [""]; x.urls[idx] = e.target.value; })} />
+                      <button className="btn icon sm" onClick={() => openUrl(url)} title="Abrir enlace" disabled={!url}>
+                        <IExternal size={13} />
+                      </button>
+                      {urls.length > 1 && (
+                        <button className="btn icon sm danger" title="Quitar enlace"
+                          onClick={() => onItem(it.id, (x) => { x.urls.splice(idx, 1); if (!x.urls.length) x.urls = [""]; })}>
+                          <IX size={13} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="wish-actions">
+                    <button className="btn ghost sm" onClick={() => onItem(it.id, (x) => { x.urls.push(""); })}>
+                      <IPlus size={13} /> Otro enlace
+                    </button>
+                    <button className="btn sm" disabled={!it.name}
+                      onClick={() => openUrl("https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(it.name))}>
+                      <ISearch size={13} /> Google Shopping
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           );
         })}
-        <button className="mg-add"
-          onClick={() => update((d) => { d.wishlist.items.unshift({ id: uid(), name: "", price: 0, urls: [""], done: false }); })}>
-          <IPlus size={16} /> Agregar compra
-        </button>
       </section>
-
-      <footer className="mg-footer">
-        <span>&quot;Buscar con IA&quot; usa Gemini para estimar el precio más bajo. Es una estimación, revisa el enlace.</span>
-      </footer>
     </div>
   );
 }

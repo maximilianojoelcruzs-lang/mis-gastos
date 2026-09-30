@@ -1,8 +1,8 @@
 "use client";
-import { useState, type KeyboardEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { traducirError } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
-import { ILock, ISpin, IWallet } from "./icons";
+import { ISpin, IWallet } from "./icons";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -10,7 +10,8 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const submit = async () => {
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
     if (!email.trim() || !password) {
       setError("Escribe tu correo y contraseña.");
       return;
@@ -23,31 +24,30 @@ export default function Login() {
       setLoading(false);
     }
   };
-  const onKey = (e: KeyboardEvent) => e.key === "Enter" && submit();
 
   return (
-    <div className="mg-authwrap">
-      <div className="mg-authcard">
-        <span className="mg-logo big"><IWallet size={26} /></span>
-        <h1>Mis Gastos</h1>
-        <p className="mg-authsub">Inicia sesión para ver tus gastos</p>
-        <label className="mg-field">
+    <div className="auth">
+      <form className="auth-card fade" onSubmit={submit}>
+        <span className="logo lg"><IWallet size={22} /></span>
+        <h1>Inicia sesión</h1>
+        <p>Entra a Mis Gastos para ver tus cuentas del mes.</p>
+        <label>
           <span>Correo</span>
-          <input type="email" autoComplete="username" value={email} onKeyDown={onKey}
+          <input className="field" type="email" autoComplete="username" value={email}
             onChange={(e) => setEmail(e.target.value)} placeholder="tucorreo@ejemplo.com" />
         </label>
-        <label className="mg-field">
+        <label>
           <span>Contraseña</span>
-          <input type="password" autoComplete="current-password" value={password} onKeyDown={onKey}
+          <input className="field" type="password" autoComplete="current-password" value={password}
             onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
         </label>
-        {error && <div className="mg-autherr">{error}</div>}
-        <button className="mg-authbtn" onClick={submit} disabled={loading}>
-          {loading ? <ISpin size={16} /> : <ILock size={16} />}
-          {loading ? "Entrando…" : "Iniciar sesión"}
+        {error && <div className="auth-err">{error}</div>}
+        <button className="btn primary block" type="submit" disabled={loading}>
+          {loading && <ISpin size={15} />}
+          {loading ? "Entrando…" : "Continuar"}
         </button>
-        <p className="mg-authnote">¿No tienes cuenta? Pídesela al administrador.</p>
-      </div>
+        <div className="auth-note">¿No tienes cuenta? Pídesela al administrador.</div>
+      </form>
     </div>
   );
 }
