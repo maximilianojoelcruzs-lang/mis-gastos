@@ -2,8 +2,8 @@
 // y cálculos. Se comparte entre el navegador y el servidor, así el backend
 // valida lo mismo que el front.
 import type {
-  AisleId, AppData, BenefitCard, Category, CategoryId, DailyExpense, Expense, Market, MarketItem, Month,
-  MonthSummary, PaletteKey, PricePoint, Priority, WishItem, YearSummary,
+  AisleId, AppData, BenefitCard, Category, CategoryId, DailyExpense, Expense, FrequentProduct, Market, MarketItem, Month,
+  MonthSummary, PaletteKey, PricePoint, Priority, Purchase, WishItem, YearSummary,
 } from "./types";
 import { uid } from "./format";
 
@@ -289,7 +289,7 @@ const exp = (id: string, name: string, amount: number, category: CategoryId, fix
   ({ id, name, amount, paid: false, category, fixed, dueDay, installment: null });
 
 export function seedMarket(): Market {
-  return { items: [], templates: [], history: {}, stores: [...DEFAULT_STORES], store: "", cards: [] };
+  return { items: [], templates: [], history: {}, stores: [...DEFAULT_STORES], store: "", cards: [], budget: 0, purchases: [], frequent: {}, shared: null };
 }
 
 export function seedData(): AppData {
@@ -397,6 +397,8 @@ function normalizeDaily(d: any, categories: Category[]): DailyExpense {
     name,
     amount: num(d?.amount),
     category: pickCategory(d?.category, name, categories),
+    card: str(d?.card),
+    cardAmount: str(d?.card) ? Math.min(Math.max(0, num(d?.cardAmount)), num(d?.amount)) : 0,
   };
 }
 
@@ -447,7 +449,30 @@ function normalizeMarket(raw: any): Market {
         use: !!c?.use,
       }))
     : [];
-  return { items, templates, history, stores, store, cards };
+  const purchases: Purchase[] = Array.isArray(raw?.purchases)
+    ? raw.purchases
+        .filter((p: any) => isDate(p?.date))
+        .map((p: any) => ({
+          id: p?.id || uid(), date: p.date, total: num(p?.total), card: num(p?.card), pocket: num(p?.pocket),
+          store: str(p?.store).slice(0, 30), count: Math.floor(num(p?.count)),
+        }))
+        .slice(-200)
+    : [];
+  const frequent: Record<string, FrequentProduct> = {};
+  if (raw?.frequent && typeof raw.frequent === "object") {
+    for (const [k, f] of Object.entries<any>(raw.frequent)) {
+      const dates = Array.isArray(f?.dates) ? [...new Set<string>(f.dates.filter(isDate))].sort().slice(-24) : [];
+      if (!k || !dates.length) continue;
+      frequent[k] = { name: str(f?.name, k).slice(0, 60), qty: Math.max(1, Math.floor(num(f?.qty)) || 1), price: num(f?.price), dates };
+    }
+  }
+  const sh = raw?.shared;
+  const shared = sh && typeof sh.id === "string" && sh.id && typeof sh.code === "string"
+    ? { id: sh.id, name: str(sh.name, "Lista compartida").slice(0, 40), code: sh.code } : null;
+  return {
+    items, templates, history, stores, store, cards,
+    budget: Math.max(0, num(raw?.budget)), purchases, frequent: trimFrequent(frequent), shared,
+  };
 }
 
 function normalizeWish(i: any): WishItem {
@@ -498,12 +523,18 @@ export function summarizeMonth(m: Month, daily: DailyExpense[] = []): MonthSumma
     if (i.paid) paid += i.amount || 0;
     byCategory[i.category] = (byCategory[i.category] || 0) + (i.amount || 0);
   }
+  // Los gastos diarios pagados con tarjeta de alimentación no salen de tu sueldo:
+  // solo cuenta la parte que pagaste de tu bolsillo.
   let dailyTotal = 0;
+  let dailyCard = 0;
   if (m.period) {
     for (const d of daily) {
       if (!d.date.startsWith(m.period)) continue;
-      dailyTotal += d.amount || 0;
-      byCategory[d.category] = (byCategory[d.category] || 0) + (d.amount || 0);
+      const card = Math.min(d.cardAmount || 0, d.amount || 0);
+      const pocket = (d.amount || 0) - card;
+      dailyTotal += pocket;
+      dailyCard += card;
+      byCategory[d.category] = (byCategory[d.category] || 0) + pocket;
     }
   }
   const spent = bills + dailyTotal;
@@ -514,6 +545,7 @@ export function summarizeMonth(m: Month, daily: DailyExpense[] = []): MonthSumma
     income,
     bills,
     daily: dailyTotal,
+    dailyCard,
     spent,
     paid,
     pending: bills - paid,
@@ -595,4 +627,108 @@ export function frequentDaily(daily: DailyExpense[], limit = 6) {
     }
   }
   return [...map.values()].filter((f) => f.count >= 2).sort((a, b) => b.count - a.count || b.last.localeCompare(a.last)).slice(0, limit);
+}
+
+// ---------- Presupuesto, productos frecuentes y compras ----------
+const MAX_FREQUENT = 150;
+
+function trimFrequent(f: Record<string, FrequentProduct>) {
+  const keys = Object.keys(f);
+  if (keys.length <= MAX_FREQUENT) return f;
+  const keep = keys
+    .sort((a, b) => f[b].dates.length - f[a].dates.length || f[b].dates[f[b].dates.length - 1].localeCompare(f[a].dates[f[a].dates.length - 1]))
+    .slice(0, MAX_FREQUENT);
+  return Object.fromEntries(keep.map((k) => [k, f[k]]));
+}
+
+/** Anota que hoy compraste este producto (cuenta un día por producto). */
+export function recordFrequent(market: Market, item: { name: string; qty: number; price: number }) {
+  const key = priceKey(item.name);
+  if (!key) return;
+  const today = todayISO();
+  const cur = (market.frequent[key] ||= { name: item.name, qty: item.qty || 1, price: item.price || 0, dates: [] });
+  cur.name = item.name;
+  cur.qty = item.qty || 1;
+  if (item.price > 0) cur.price = item.price;
+  if (!cur.dates.includes(today)) cur.dates.push(today);
+  if (cur.dates.length > 24) cur.dates.splice(0, cur.dates.length - 24);
+  market.frequent = trimFrequent(market.frequent);
+}
+
+/** Productos que compras seguido (2 días distintos o más), los más habituales primero. */
+export function frequentProducts(market: Market, limit = 12) {
+  return Object.entries(market.frequent)
+    .map(([key, f]) => ({ key, ...f, times: f.dates.length, last: f.dates[f.dates.length - 1] }))
+    .filter((f) => f.times >= 2)
+    .sort((a, b) => b.times - a.times || b.last.localeCompare(a.last))
+    .slice(0, limit);
+}
+
+/** Gasto del súper (tarjeta + bolsillo) en un mes "YYYY-MM". */
+export function superSpent(market: Market, period: string) {
+  return market.purchases.filter((p) => p.date.startsWith(period)).reduce((s, p) => s + p.total, 0);
+}
+
+export function logPurchase(market: Market, p: Omit<Purchase, "id" | "date">) {
+  market.purchases.push({ id: uid(), date: todayISO(), ...p });
+  if (market.purchases.length > 200) market.purchases.splice(0, market.purchases.length - 200);
+}
+
+/** Precio sugerido para un producto: el de la tienda elegida, el último conocido o el habitual. */
+export function suggestedPrice(market: Market, name: string): number {
+  const key = priceKey(name);
+  if (!key) return 0;
+  const byStore = latestByStore(market, name);
+  if (market.store && byStore[market.store]) return byStore[market.store].price;
+  const pts = market.history[key] || [];
+  if (pts.length) return pts[pts.length - 1].price;
+  return market.frequent[key]?.price || 0;
+}
+
+/** Agrega productos a la lista; si ya está (y no está en el carro) suma la cantidad. */
+export function addProducts(market: Market, list: { name: string; qty: number }[]) {
+  let changed = 0;
+  for (const p of list) {
+    const key = priceKey(p.name);
+    if (!key) continue;
+    const existing = market.items.find((i) => priceKey(i.name) === key && !i.done);
+    if (existing) existing.qty = (existing.qty || 1) + (p.qty || 1);
+    else
+      market.items.push({
+        id: uid(), name: p.name, qty: p.qty || 1, price: suggestedPrice(market, p.name), done: false, aisle: guessAisle(p.name),
+      });
+    changed++;
+  }
+  return changed;
+}
+
+/** Marca un producto como comprado y guarda su precio e historial. */
+export function markBought(market: Market, it: MarketItem) {
+  it.done = true;
+  recordPrice(market, it.name, it.price, market.store);
+  recordFrequent(market, it);
+}
+
+/** Marca o desmarca un producto del carro. */
+export function toggleItem(market: Market, id: string) {
+  const it = market.items.find((i) => i.id === id);
+  if (!it) return;
+  if (it.done) it.done = false;
+  else markBought(market, it);
+}
+
+// ---------- Gastos diarios pagados con tarjeta ----------
+/** Descuenta de la tarjeta lo que alcance y devuelve cuánto cubrió. */
+export function chargeCard(market: Market, cardId: string, amount: number) {
+  const card = market.cards.find((c) => c.id === cardId);
+  if (!card || amount <= 0) return 0;
+  const covered = Math.min(Math.max(0, card.balance), amount);
+  card.balance -= covered;
+  return covered;
+}
+
+/** Devuelve a la tarjeta lo que cubrió (al borrar o achicar un gasto). */
+export function refundCard(market: Market, cardId: string, amount: number) {
+  const card = market.cards.find((c) => c.id === cardId);
+  if (card && amount > 0) card.balance += amount;
 }

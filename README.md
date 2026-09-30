@@ -10,9 +10,11 @@ Hecha con **Next.js (App Router + TypeScript)** y **Supabase** (login y datos).
 - **Cuentas (gastos mensuales):** varios ingresos, meta de ahorro, categorías con colores, gastos fijos que se
   copian al crear el mes siguiente, vencimientos con alertas y compras en cuotas que avanzan solas.
 - **Gastos diarios:** anota micro-gastos (café, almacén, micro) en segundos; se descuentan del presupuesto del mes.
-  El botón **+** (gasto rápido) está disponible en todas las pantallas.
-- **Supermercado:** lista por pasillo, **tarjetas de alimentación** (Amipass, Sodexo, Edenred u otra) que reparten
-  la compra entre la tarjeta y tu bolsillo, precios por supermercado con comparación, historial y listas guardadas.
+  El botón **+** (gasto rápido) está disponible en todas las pantallas y puede pagarse con una tarjeta de alimentación.
+- **Supermercado:** lista por pasillo, **presupuesto mensual del súper**, **tarjetas de alimentación** (Amipass,
+  Sodexo, Edenred u otra) que reparten la compra entre la tarjeta y tu bolsillo, **modo tienda** (pantalla grande y
+  siempre encendida), **dictado por voz**, productos que compras seguido, **lista compartida en pareja o familia**,
+  precios por supermercado con comparación, historial y listas guardadas.
 - **Próximas compras:** prioridad, fecha objetivo con cuenta regresiva, ahorro por objetivo y Google Shopping.
 - **Buscador** (`/` o `Ctrl/Cmd+K`), **exportar a Excel y PDF**, **modo claro/oscuro/automático**,
   **modo privado** (oculta los montos) y **categorías y supermercados propios** (Ajustes).
@@ -32,6 +34,11 @@ app/
 components/                → pantallas y pestañas (Gastos, Supermercado, Próximas compras)
 lib/
   data.ts                  → datos de ejemplo, normalización y cálculos (compartido front/back)
+  speech.ts                → convierte "leche, 2 panes y huevos" en productos
+  useSharedList.ts         → sincronización de la lista compartida
+  export.ts                → exportación a Excel y PDF
+supabase/
+  shared_lists.sql         → tablas, seguridad (RLS) y funciones de la lista compartida
   api.ts                   → cliente del backend (agrega el token de sesión)
   supabase/                → cliente del navegador y validación de sesión en el servidor
 ```
@@ -55,6 +62,18 @@ En el panel de Supabase, *Authentication*:
    recibirá un correo para confirmar la cuenta.
 2. *URL Configuration*: en **Site URL** pon la dirección de tu app (por ejemplo `https://tu-app.vercel.app`) y agrégala
    también a **Redirect URLs**. Sin esto, el enlace del correo de "olvidé mi contraseña" no vuelve a la app.
+
+## Activar la lista compartida (Supabase)
+
+La lista compartida usa tres tablas nuevas. Solo hay que hacerlo una vez:
+
+1. En Supabase abre **SQL Editor**, pega el contenido de [`supabase/shared_lists.sql`](supabase/shared_lists.sql) y presiona **Run**.
+2. Listo: en *Súper → Lista compartida* una persona crea la lista y comparte el código; la otra se une con él.
+
+Cómo funciona: cada producto es una fila, así que dos personas pueden editar a la vez sin pisarse (en un choque gana
+el último cambio, con la hora del servidor). La app consulta cambios cada 5 segundos mientras está abierta.
+Solo los participantes ven la lista (RLS), el código tiene 10 caracteres y cada lista admite hasta 8 personas.
+Si el SQL no se ha ejecutado, la app lo avisa en pantalla.
 
 ## Despliegue en Vercel
 

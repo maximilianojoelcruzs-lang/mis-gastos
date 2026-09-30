@@ -5,6 +5,8 @@ export const setPrivacy = (v: boolean) => {
   hidden = v;
 };
 
+export const isPrivate = () => hidden;
+
 export const clp = (n: number) => (hidden ? "$•••••" : "$" + Math.round(n || 0).toLocaleString("es-CL"));
 
 export const compact = (n: number) => {

@@ -28,8 +28,8 @@ function build(data: AppData, scope: ExportScope) {
     total: summaries.reduce((t, s) => t + (s.byCategory[c.id] || 0), 0),
   })).filter((c) => c.total > 0);
   const totals = summaries.reduce(
-    (t, s) => ({ income: t.income + s.income, bills: t.bills + s.bills, daily: t.daily + s.daily, spent: t.spent + s.spent, balance: t.balance + s.balance }),
-    { income: 0, bills: 0, daily: 0, spent: 0, balance: 0 }
+    (t, s) => ({ income: t.income + s.income, bills: t.bills + s.bills, daily: t.daily + s.daily, dailyCard: t.dailyCard + s.dailyCard, spent: t.spent + s.spent, balance: t.balance + s.balance }),
+    { income: 0, bills: 0, daily: 0, dailyCard: 0, spent: 0, balance: 0 }
   );
   return { months, summaries, daily, catTotals, totals, label, slug };
 }
@@ -62,9 +62,9 @@ async function toXlsx(data: AppData, m: Model): Promise<Blob> {
   const text = (v: string, bold = false) => ({ value: v, type: String, ...(bold ? { fontWeight: "bold" as const } : {}) });
 
   const resumen = [
-    [head("Mes"), head("Ingresos"), head("Cuentas"), head("Gastos diarios"), head("Total gastos"), head("Ahorro")],
-    ...m.summaries.map((s) => [text(s.label || "Sin nombre"), money(s.income), money(s.bills), money(s.daily), money(s.spent), money(s.balance)]),
-    [text("Total", true), money(m.totals.income, true), money(m.totals.bills, true), money(m.totals.daily, true), money(m.totals.spent, true), money(m.totals.balance, true)],
+    [head("Mes"), head("Ingresos"), head("Cuentas"), head("Gastos diarios"), head("Diarios con tarjeta"), head("Total gastos"), head("Ahorro")],
+    ...m.summaries.map((s) => [text(s.label || "Sin nombre"), money(s.income), money(s.bills), money(s.daily), money(s.dailyCard), money(s.spent), money(s.balance)]),
+    [text("Total", true), money(m.totals.income, true), money(m.totals.bills, true), money(m.totals.daily, true), money(m.totals.dailyCard, true), money(m.totals.spent, true), money(m.totals.balance, true)],
   ];
 
   const cuentas = [
@@ -79,8 +79,8 @@ async function toXlsx(data: AppData, m: Model): Promise<Blob> {
   ];
 
   const diarios = [
-    [head("Fecha"), head("Descripción"), head("Categoría"), head("Monto")],
-    ...m.daily.map((d) => [text(d.date), text(d.name), text(catOf(data.categories, d.category).label), money(d.amount)]),
+    [head("Fecha"), head("Descripción"), head("Categoría"), head("Monto"), head("Pagado con tarjeta")],
+    ...m.daily.map((d) => [text(d.date), text(d.name), text(catOf(data.categories, d.category).label), money(d.amount), money(d.cardAmount || 0)]),
   ];
 
   const porCategoria = [
@@ -89,9 +89,9 @@ async function toXlsx(data: AppData, m: Model): Promise<Blob> {
   ];
 
   const sheets = [
-    { data: resumen, sheet: "Resumen", columns: [{ width: 22 }, { width: 14 }, { width: 14 }, { width: 16 }, { width: 16 }, { width: 14 }] },
+    { data: resumen, sheet: "Resumen", columns: [{ width: 22 }, { width: 14 }, { width: 14 }, { width: 16 }, { width: 20 }, { width: 16 }, { width: 14 }] },
     { data: cuentas, sheet: "Cuentas", columns: [{ width: 20 }, { width: 28 }, { width: 16 }, { width: 14 }, { width: 10 }, { width: 12 }, { width: 10 }] },
-    { data: diarios, sheet: "Diarios", columns: [{ width: 13 }, { width: 32 }, { width: 16 }, { width: 14 }] },
+    { data: diarios, sheet: "Diarios", columns: [{ width: 13 }, { width: 32 }, { width: 16 }, { width: 14 }, { width: 20 }] },
     { data: porCategoria, sheet: "Por categoría", columns: [{ width: 20 }, ...m.summaries.map(() => ({ width: 14 })), { width: 14 }] },
   ];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -141,6 +141,13 @@ async function toPdf(data: AppData, m: Model): Promise<Blob> {
   table("Resumen por mes", ["Mes", "Ingresos", "Cuentas", "Diarios", "Total gastos", "Ahorro"],
     m.summaries.map((s) => [s.label || "Sin nombre", pdfMoney(s.income), pdfMoney(s.bills), pdfMoney(s.daily), pdfMoney(s.spent), pdfMoney(s.balance)]),
     ["Total", pdfMoney(m.totals.income), pdfMoney(m.totals.bills), pdfMoney(m.totals.daily), pdfMoney(m.totals.spent), pdfMoney(m.totals.balance)]);
+  if (m.totals.dailyCard > 0) {
+    doc.setFontSize(9);
+    doc.setTextColor(110);
+    doc.text(pdfText(`Además, ${pdfMoney(m.totals.dailyCard)} en gastos diarios se pagaron con tarjetas de alimentación (no incluidos arriba).`), left, y - 14);
+    doc.setTextColor(20);
+    y += 6;
+  }
 
   if (m.catTotals.length) {
     const sorted = [...m.catTotals].sort((a, b) => b.total - a.total);
@@ -157,8 +164,8 @@ async function toPdf(data: AppData, m: Model): Promise<Blob> {
           catOf(data.categories, i.category).label, i.dueDay ? `día ${i.dueDay}` : "-", i.paid ? "Sí" : "No", pdfMoney(i.amount),
         ]));
     if (m.daily.length)
-      table("Gastos diarios", ["Fecha", "Descripción", "Categoría", "Monto"],
-        m.daily.map((d) => [d.date, d.name, catOf(data.categories, d.category).label, pdfMoney(d.amount)]));
+      table("Gastos diarios", ["Fecha", "Descripción", "Categoría", "Monto", "Con tarjeta"],
+        m.daily.map((d) => [d.date, d.name, catOf(data.categories, d.category).label, pdfMoney(d.amount), d.cardAmount ? pdfMoney(d.cardAmount) : "-"]));
   } else {
     doc.setFontSize(9);
     doc.setTextColor(110);

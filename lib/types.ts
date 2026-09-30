@@ -44,6 +44,10 @@ export type DailyExpense = {
   name: string;
   amount: number;
   category: CategoryId;
+  /** Tarjeta de alimentación con la que se pagó ("" = bolsillo). */
+  card: string;
+  /** Parte del monto que cubrió la tarjeta; el resto salió del bolsillo. */
+  cardAmount: number;
 };
 
 export type AisleId =
@@ -72,6 +76,24 @@ export type BenefitCard = {
   use: boolean;
 };
 
+/** Compra registrada en el súper (para el presupuesto mensual). */
+export type Purchase = {
+  id: string;
+  date: string;
+  total: number;
+  /** Lo que cubrieron las tarjetas y lo que salió del bolsillo. */
+  card: number;
+  pocket: number;
+  store: string;
+  count: number;
+};
+
+/** Producto que compras seguido: días distintos en que lo compraste. */
+export type FrequentProduct = { name: string; qty: number; price: number; dates: string[] };
+
+/** Lista del súper compartida con otras personas (vive en Supabase). */
+export type SharedLink = { id: string; name: string; code: string };
+
 export type MarketTemplate = { id: string; name: string; items: { name: string; qty: number; price: number }[] };
 
 /** Precio observado de un producto; `store` vacío = tienda no registrada. */
@@ -88,6 +110,12 @@ export type Market = {
   store: string;
   /** Tarjetas de alimentación para repartir la compra entre la tarjeta y tu bolsillo. */
   cards: BenefitCard[];
+  /** Presupuesto mensual del súper (tarjeta + bolsillo); 0 = sin presupuesto. */
+  budget: number;
+  purchases: Purchase[];
+  frequent: Record<string, FrequentProduct>;
+  /** Lista compartida activa (null = lista personal). */
+  shared: SharedLink | null;
 };
 
 export type Priority = "alta" | "media" | "baja";
@@ -122,8 +150,10 @@ export type MonthSummary = {
   income: number;
   /** Cuentas del mes (gastos mensuales). */
   bills: number;
-  /** Gastos diarios del mes calendario. */
+  /** Gastos diarios del mes calendario que salieron del bolsillo. */
   daily: number;
+  /** Lo que pagaron las tarjetas de alimentación (no sale de tu sueldo). */
+  dailyCard: number;
   /** bills + daily */
   spent: number;
   /** De las cuentas: lo ya pagado / lo que falta. */

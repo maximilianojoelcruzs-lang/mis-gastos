@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { api } from "@/lib/api";
 import { currentPeriod, normalize } from "@/lib/data";
 import { setPrivacy } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
+import { useSharedList } from "@/lib/useSharedList";
 import type { AppData } from "@/lib/types";
 import ExportForm from "./ExportForm";
 import GastosTab from "./GastosTab";
@@ -65,6 +66,21 @@ export default function Tracker({ session }: { session: Session }) {
 
   // Los montos se ocultan en todos los componentes hijos mientras dure el modo privado.
   setPrivacy(priv);
+
+  const setData: SetData = useCallback(
+    (next) => setDataState((prev) => (typeof next === "function" ? next(prev!) : next)),
+    []
+  );
+  const update: Update = useCallback(
+    (mutate) =>
+      setDataState((prev) => {
+        const draft = structuredClone(prev!);
+        mutate(draft);
+        return draft;
+      }),
+    []
+  );
+  const shared = useSharedList(data, update);
 
   useEffect(() => {
     let alive = true;
@@ -129,14 +145,6 @@ export default function Tracker({ session }: { session: Session }) {
   if (loadError) return <Splash text={"No se pudieron cargar tus datos: " + loadError} />;
   if (data === null) return <Splash text="Cargando tus gastos…" />;
 
-  const setData: SetData = (next) =>
-    setDataState((prev) => (typeof next === "function" ? next(prev!) : next));
-  const update: Update = (mutate) =>
-    setDataState((prev) => {
-      const draft = structuredClone(prev!);
-      mutate(draft);
-      return draft;
-    });
   const notify: Notify = (text) => {
     setToast(text);
     clearTimeout(toastTimer.current);
@@ -163,7 +171,7 @@ export default function Tracker({ session }: { session: Session }) {
     { id: "diario", label: "Gastos diarios", short: "Diario", icon: ICoffee,
       title: "Gastos diarios", desc: "Anota lo que gastas día a día: el café, el almacén, la micro…" },
     { id: "market", label: "Supermercado", short: "Súper", icon: ICart, count: data.market.items.filter((i) => !i.done).length,
-      title: "Supermercado", desc: "Tu lista, tarjetas de alimentación, precios por tienda y pasillos." },
+      title: "Supermercado", desc: "Tu lista, presupuesto, tarjetas de alimentación, lista compartida y modo tienda." },
     { id: "wish", label: "Próximas compras", short: "Compras", icon: IGift, count: data.wishlist.items.filter((i) => !i.done).length,
       title: "Próximas compras", desc: "Lo que quieres comprar o regalar, con prioridad, fecha y ahorro." },
   ];
@@ -250,7 +258,7 @@ export default function Tracker({ session }: { session: Session }) {
           {tab === "diario" && (
             <DiarioTab data={data} update={update} period={dailyPeriod} setPeriod={setDailyPeriod} notify={notify} />
           )}
-          {tab === "market" && <MarketTab data={data} update={update} notify={notify} />}
+          {tab === "market" && <MarketTab data={data} update={update} notify={notify} shared={shared} />}
           {tab === "wish" && <WishlistTab data={data} update={update} />}
           {tab === "settings" && (
             <SettingsTab data={data} update={update} session={session} theme={theme} setTheme={setTheme}

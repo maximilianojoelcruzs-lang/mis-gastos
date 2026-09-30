@@ -1,25 +1,31 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  AISLES, aisleLabel, guessAisle, latestByStore, previousPrice, priceKey, recordPrice, splitPayment, storeComparison, todayISO,
+  AISLES, addProducts, aisleLabel, currentPeriod, frequentProducts, guessAisle, latestByStore, logPurchase, markBought,
+  periodName, previousPrice, priceKey, recordPrice, splitPayment, storeComparison, superSpent, todayISO, toggleItem,
 } from "@/lib/data";
-import { clp, uid } from "@/lib/format";
+import { clp, dayLabel, uid } from "@/lib/format";
+import type { SharedList } from "@/lib/useSharedList";
 import type { AisleId, AppData, MarketItem } from "@/lib/types";
+import AddMany from "./AddMany";
 import BenefitCards from "./BenefitCards";
 import CurrencyInput from "./CurrencyInput";
 import {
-  IArrowDown, IArrowRight, IArrowUp, IBookmark, ICheck, IMore, IPlus, IStore, ITrash, IX,
+  IAlert, IArrowDown, IArrowRight, IArrowUp, IBookmark, ICheck, IExpand, IMore, IPlus, IStore, ITrash, IUsers, IX,
 } from "./icons";
+import SharedListCard from "./SharedListCard";
+import StoreMode from "./StoreMode";
 import type { Notify, Update } from "./Tracker";
 
-type Props = { data: AppData; update: Update; notify: Notify };
+type Props = { data: AppData; update: Update; notify: Notify; shared: SharedList };
 type View = "lista" | "pasillos";
 
-export default function MarketTab({ data, update, notify }: Props) {
+export default function MarketTab({ data, update, notify, shared }: Props) {
   const { market } = data;
-  const { items, templates, stores, store, cards } = market;
+  const { items, templates, stores, store, cards, budget, purchases } = market;
   const [view, setView] = useState<View>("lista");
   const [open, setOpen] = useState<string | null>(null);
+  const [storeMode, setStoreMode] = useState(false);
 
   useEffect(() => {
     try {
@@ -35,8 +41,10 @@ export default function MarketTab({ data, update, notify }: Props) {
   const total = items.reduce((s, i) => s + lineTotal(i), 0);
   const cart = items.filter((i) => i.done);
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0);
+  const pendingTotal = items.filter((i) => !i.done).reduce((s, i) => s + lineTotal(i), 0);
   const donePct = items.length > 0 ? (cart.length / items.length) * 100 : 0;
   const month = data.months.find((m) => m.id === data.activeId) || data.months[0];
+  const today = todayISO();
 
   // La compra a repartir es el carro; si aún no hay nada marcado, toda la lista.
   const base = cart.length ? cart : items;
@@ -45,18 +53,20 @@ export default function MarketTab({ data, update, notify }: Props) {
   const scope = cart.length ? `el carro (${cart.length} ${cart.length === 1 ? "producto" : "productos"})` : "toda la lista";
   const comparison = storeComparison(market);
 
+  // Presupuesto del mes
+  const period = currentPeriod();
+  const spentSuper = superSpent(market, period);
+  const projected = spentSuper + pendingTotal;
+  const monthPurchases = purchases.filter((p) => p.date.startsWith(period)).reverse();
+
+  // Lo que sueles comprar (y que aún no está en la lista)
+  const inList = new Set(items.filter((i) => !i.done).map((i) => priceKey(i.name)));
+  const usual = frequentProducts(market).filter((f) => !inList.has(f.key));
+
   const setItem = <K extends keyof MarketItem>(id: string, key: K, value: MarketItem[K]) =>
     update((d) => {
       const it = d.market.items.find((i) => i.id === id);
       if (it) it[key] = value;
-    });
-
-  const toggle = (id: string) =>
-    update((d) => {
-      const it = d.market.items.find((i) => i.id === id);
-      if (!it) return;
-      it.done = !it.done;
-      if (it.done) recordPrice(d.market, it.name, it.price, d.market.store);
     });
 
   const setStorePrice = (id: string, storeName: string, price: number) =>
@@ -114,7 +124,13 @@ export default function MarketTab({ data, update, notify }: Props) {
       : `${tpl.name}: ya tenías todo en la lista`);
   };
 
-  // Registra la compra: descuenta de las tarjetas y suma a Gastos solo lo que pagas tú.
+  const addUsual = (list: { name: string; qty: number }[]) => {
+    update((d) => { addProducts(d.market, list); });
+    notify(list.length === 1 ? `Agregué ${list[0].name}` : `Agregué ${list.length} productos`);
+  };
+
+  // Registra la compra: descuenta de las tarjetas, suma a Gastos lo que pagas tú
+  // y la anota en el presupuesto del súper.
   const registerPurchase = () => {
     if (!base.length || !split.total) return;
     const [, m, d] = todayISO().split("-");
@@ -126,6 +142,7 @@ export default function MarketTab({ data, update, notify }: Props) {
         `${pocket > 0 ? ` y se agregarán ${clp(pocket)} a los gastos de ${month.label}` : ""}. ¿Continuar?`
       : `¿Agregar ${clp(pocket)} como gasto "Supermercado ${d}/${m}" en ${month.label}?`;
     if (!confirm(message)) return;
+    const ids = new Set(base.map((i) => i.id));
     update((draft) => {
       for (const p of used) {
         const card = draft.market.cards.find((c) => c.id === p.card.id);
@@ -138,6 +155,9 @@ export default function MarketTab({ data, update, notify }: Props) {
           category: draft.categories.some((c) => c.id === "comida") ? "comida" : "otros", fixed: false, dueDay: null, installment: null,
         });
       }
+      logPurchase(draft.market, { total: split.total, card: usingCards ? split.covered : 0, pocket, store: draft.market.store, count: base.length });
+      // Lo comprado queda marcado, para no contarlo dos veces en el presupuesto.
+      for (const it of draft.market.items) if (ids.has(it.id) && !it.done) markBought(draft.market, it);
     });
     notify(usingCards
       ? pocket > 0 ? `Registrado: ${clp(pocket)} a Gastos, el resto con tarjeta` : "Registrado: pagado con tu tarjeta"
@@ -159,7 +179,7 @@ export default function MarketTab({ data, update, notify }: Props) {
     return (
       <div key={it.id}>
         <div className={"row " + (it.done ? "done" : "")}>
-          <button className={"check " + (it.done ? "on" : "")} onClick={() => toggle(it.id)} title="Marcar como comprado">
+          <button className={"check " + (it.done ? "on" : "")} onClick={() => update((d) => { toggleItem(d.market, it.id); })} title="Marcar como comprado">
             {it.done && <ICheck size={12} />}
           </button>
           <div className="cell">
@@ -248,7 +268,10 @@ export default function MarketTab({ data, update, notify }: Props) {
       <section className="card">
         <div className="hero" style={{ marginBottom: 14 }}>
           <div>
-            <div className="l">Total estimado</div>
+            <div className="l">
+              Total estimado
+              {shared.link && <span className="badge"><IUsers size={11} /> Compartida{shared.members.length > 1 ? ` · ${shared.members.length} personas` : ""}</span>}
+            </div>
             <div className="v">{clp(total)}</div>
             {usingCards && (
               <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
@@ -256,10 +279,15 @@ export default function MarketTab({ data, update, notify }: Props) {
               </div>
             )}
           </div>
-          <button className="btn" onClick={registerPurchase} disabled={!split.total}
-            title="Registra la compra en tus gastos del mes activo">
-            <IArrowRight size={14} /> {usingCards ? "Registrar compra" : `Pasar ${cart.length ? "carro" : "total"} a Gastos`}
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn" onClick={() => setStoreMode(true)} title="Pantalla grande para comprar en la tienda">
+              <IExpand size={14} /> Modo tienda
+            </button>
+            <button className="btn" onClick={registerPurchase} disabled={!split.total}
+              title="Registra la compra en tus gastos del mes activo">
+              <IArrowRight size={14} /> {usingCards ? "Registrar compra" : `Pasar ${cart.length ? "carro" : "total"} a Gastos`}
+            </button>
+          </div>
         </div>
         <div className="bar"><i style={{ width: donePct + "%" }} /></div>
         <div className="bar-l">
@@ -285,6 +313,114 @@ export default function MarketTab({ data, update, notify }: Props) {
               )}
             </div>
           </>
+        )}
+      </section>
+
+      {usual.length > 0 && (
+        <section className="card">
+          <div className="card-h">
+            <div>
+              <h2>Lo que sueles comprar</h2>
+              <div className="sub">Productos que has comprado en más de un día. Toca uno para agregarlo.</div>
+            </div>
+            <button className="btn sm" onClick={() => addUsual(usual.map((u) => ({ name: u.name, qty: u.qty })))}>
+              <IPlus size={13} /> Agregar todos ({usual.length})
+            </button>
+          </div>
+          <div className="chips">
+            {usual.map((u) => (
+              <button key={u.key} className="chip" onClick={() => addUsual([{ name: u.name, qty: u.qty }])}
+                title={`Comprado ${u.times} días · última vez ${dayLabel(u.last, today)}`}>
+                <IPlus size={12} /> {u.name}{u.qty > 1 ? ` ×${u.qty}` : ""}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <div className="card-h">
+          <h2>Lista de compra</h2>
+          <div className="seg" role="group" aria-label="Vista">
+            <button className={view === "lista" ? "on" : ""} onClick={() => changeView("lista")}>Lista</button>
+            <button className={view === "pasillos" ? "on" : ""} onClick={() => changeView("pasillos")}>Por pasillo</button>
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <AddMany data={data} update={update} notify={notify} />
+        </div>
+        {items.length === 0 ? (
+          <div className="empty">Tu lista está vacía. Agrega productos arriba o carga una lista guardada.</div>
+        ) : view === "lista" ? (
+          <div className="rows">{items.map(renderItem)}</div>
+        ) : (
+          grouped.map((g) => (
+            <div key={g.aisle.id}>
+              <div className="group-h">
+                <span>{g.aisle.label}</span>
+                <span className="num">{clp(g.list.reduce((s, i) => s + lineTotal(i), 0))}</span>
+              </div>
+              <div className="rows">{g.list.map(renderItem)}</div>
+            </div>
+          ))
+        )}
+        <div className="add-row">
+          <button className="btn dashed"
+            onClick={() => update((d) => { d.market.items.push({ id: uid(), name: "", qty: 1, price: 0, done: false, aisle: "otros" }); })}>
+            <IPlus size={14} /> Agregar un producto
+          </button>
+        </div>
+      </section>
+
+      {/* Presupuesto mensual del súper */}
+      <section className="card">
+        <div className="card-h">
+          <div>
+            <h2>Presupuesto del súper</h2>
+            <div className="sub">{periodName(period)} · suma lo que pagan tus tarjetas y lo que pones tú</div>
+          </div>
+        </div>
+        <div className="budget-row">
+          <span className="muted grow">Presupuesto mensual</span>
+          <CurrencyInput className="field sm amount" value={budget} placeholder="$0"
+            onChange={(v) => update((d) => { d.market.budget = v; })} />
+        </div>
+        {budget > 0 ? (
+          <>
+            <div className="bar lg stack" role="img"
+              aria-label={`Llevas ${clp(spentSuper)} de ${clp(budget)}; con lo que falta comprar llegarías a ${clp(projected)}`}>
+              <i className="plan" style={{ width: Math.min(100, (projected / budget) * 100) + "%" }} />
+              <i className={"now " + (spentSuper > budget ? "bad" : "")} style={{ width: Math.min(100, (spentSuper / budget) * 100) + "%" }} />
+            </div>
+            <div className="bar-l">
+              <span>Gastado <b className="num" style={{ color: "var(--ink)" }}>{clp(spentSuper)}</b> ({Math.round((spentSuper / budget) * 100)}%)</span>
+              <span>Con lo que falta: <b className="num" style={{ color: "var(--ink)" }}>{clp(projected)}</b></span>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              {projected > budget ? (
+                <span className="badge bad"><IAlert size={11} /> Te pasarías por {clp(projected - budget)}</span>
+              ) : (
+                <span className="badge good"><ICheck size={11} /> Te quedarían {clp(budget - projected)} del presupuesto</span>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Define cuánto quieres gastar al mes en el súper y te aviso si te pasas.</p>
+        )}
+        {monthPurchases.length > 0 && (
+          <div className="mini-list">
+            <div className="muted" style={{ fontSize: 12, marginBottom: 2 }}>Compras registradas este mes</div>
+            {monthPurchases.slice(0, 4).map((p) => (
+              <div className="r" key={p.id}>
+                <span className="n">{dayLabel(p.date, today)}{p.store ? ` · ${p.store}` : ""} · {p.count} {p.count === 1 ? "producto" : "productos"}</span>
+                <b>{clp(p.total)}</b>
+                <button className="btn ghost icon sm danger" title="Quitar del presupuesto (no devuelve saldo a las tarjetas)"
+                  onClick={() => update((d) => { d.market.purchases = d.market.purchases.filter((x) => x.id !== p.id); })}>
+                  <IX size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
@@ -323,6 +459,8 @@ export default function MarketTab({ data, update, notify }: Props) {
         </section>
       )}
 
+      <SharedListCard market={market} shared={shared} notify={notify} />
+
       <section className="card">
         <div className="card-h">
           <div>
@@ -354,41 +492,15 @@ export default function MarketTab({ data, update, notify }: Props) {
         )}
       </section>
 
-      <section className="card">
-        <div className="card-h">
-          <h2>Lista de compra</h2>
-          <div className="seg" role="group" aria-label="Vista">
-            <button className={view === "lista" ? "on" : ""} onClick={() => changeView("lista")}>Lista</button>
-            <button className={view === "pasillos" ? "on" : ""} onClick={() => changeView("pasillos")}>Por pasillo</button>
-          </div>
-        </div>
-        {items.length === 0 ? (
-          <div className="empty">Tu lista está vacía. Agrega un producto o carga una lista guardada.</div>
-        ) : view === "lista" ? (
-          <div className="rows">{items.map(renderItem)}</div>
-        ) : (
-          grouped.map((g) => (
-            <div key={g.aisle.id}>
-              <div className="group-h">
-                <span>{g.aisle.label}</span>
-                <span className="num">{clp(g.list.reduce((s, i) => s + lineTotal(i), 0))}</span>
-              </div>
-              <div className="rows">{g.list.map(renderItem)}</div>
-            </div>
-          ))
-        )}
-        <div className="add-row">
-          <button className="btn dashed"
-            onClick={() => update((d) => { d.market.items.push({ id: uid(), name: "", qty: 1, price: 0, done: false, aisle: "otros" }); })}>
-            <IPlus size={14} /> Agregar producto
-          </button>
-        </div>
-      </section>
-
       <div className="foot-note">
-        <span>Al marcar un producto como comprado se guarda su precio{store ? ` en ${store}` : ""} en el historial.</span>
+        <span>Al marcar un producto como comprado se guarda su precio{store ? ` en ${store}` : ""} y aprendo lo que compras seguido.</span>
         {cart.length > 0 && <button className="btn ghost sm" onClick={clearDone}><ITrash size={13} /> Quitar comprados</button>}
       </div>
+
+      {storeMode && (
+        <StoreMode data={data} update={update} notify={notify} shared={shared}
+          onClose={() => setStoreMode(false)} onRegister={registerPurchase} />
+      )}
     </div>
   );
 }
