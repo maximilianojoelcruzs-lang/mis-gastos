@@ -84,7 +84,7 @@ export default function Tracker({ session }: { session: Session }) {
       title: "Supermercado", desc: "Arma la lista, estima el total y marca lo que ya va en el carro." },
     { id: "wish", label: "Próximas compras", hint: "Deseos y regalos", icon: IGift,
       count: data.wishlist.items.filter((i) => !i.done).length,
-      title: "Próximas compras", desc: "Guarda lo que quieres comprar o regalar y busca el mejor precio con IA." },
+      title: "Próximas compras", desc: "Guarda lo que quieres comprar o regalar y compara precios en Google Shopping." },
   ];
   const current = tabs.find((t) => t.id === tab)!;
 

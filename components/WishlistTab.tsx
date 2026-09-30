@@ -1,16 +1,11 @@
 "use client";
-import { useState } from "react";
-import { api } from "@/lib/api";
 import { clp, openUrl, uid } from "@/lib/format";
-import type { AppData, PriceResult, WishItem } from "@/lib/types";
+import type { AppData, WishItem } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
-import { ICheck, IExternal, IPlus, ISearch, ISpark, ISpin, ITrash, IX } from "./icons";
+import { ICheck, IExternal, IPlus, ISearch, ITrash, IX } from "./icons";
 import type { Update } from "./Tracker";
 
-type AiState = { loading?: boolean; error?: string; result?: PriceResult; raw?: string };
-
 export default function WishlistTab({ data, update }: { data: AppData; update: Update }) {
-  const [ai, setAi] = useState<Record<string, AiState>>({});
   const items = data.wishlist.items;
   const pending = items.filter((i) => !i.done);
   const pendingTotal = pending.reduce((s, i) => s + (Number(i.price) || 0), 0);
@@ -20,26 +15,6 @@ export default function WishlistTab({ data, update }: { data: AppData; update: U
     update((d) => {
       const it = d.wishlist.items.find((i) => i.id === id);
       if (it) fn(it);
-    });
-
-  const searchAi = async (it: WishItem) => {
-    if (!it.name) return;
-    setAi((s) => ({ ...s, [it.id]: { loading: true } }));
-    try {
-      const r = await api.buscarPrecio(it.name);
-      setAi((s) => ({ ...s, [it.id]: "result" in r ? { result: r.result } : { raw: r.raw } }));
-    } catch (e) {
-      setAi((s) => ({ ...s, [it.id]: { error: (e as Error).message || "No se pudo consultar la IA." } }));
-    }
-  };
-
-  const applyPrice = (id: string, r: PriceResult) =>
-    onItem(id, (it) => {
-      if (r.precio_clp) it.price = Number(r.precio_clp) || 0;
-      if (r.url) {
-        if (it.urls.length === 1 && !it.urls[0]) it.urls[0] = r.url;
-        else if (!it.urls.includes(r.url)) it.urls.push(r.url);
-      }
     });
 
   return (
@@ -65,7 +40,6 @@ export default function WishlistTab({ data, update }: { data: AppData; update: U
         {items.length === 0 && <div className="mg-empty">Agrega algo que quieras comprar o regalar más adelante.</div>}
         {items.map((it) => {
           const urls = it.urls.length ? it.urls : [""];
-          const a = ai[it.id];
           return (
             <div className={"mg-wcard " + (it.done ? "done" : "")} key={it.id}>
               <div className="mg-wtop">
@@ -103,31 +77,7 @@ export default function WishlistTab({ data, update }: { data: AppData; update: U
                   onClick={() => openUrl("https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(it.name))}>
                   <ISearch size={13} /> Google Shopping
                 </button>
-                <button className="mg-shopbtn ai" disabled={!it.name || !!a?.loading} onClick={() => searchAi(it)}>
-                  {a?.loading ? <ISpin size={13} /> : <ISpark size={13} />} Buscar con IA
-                </button>
               </div>
-              {a && (a.error || a.result || a.raw) && (
-                <div className="mg-airesult">
-                  {a.error && <span className="err">{a.error}</span>}
-                  {a.result && (
-                    <div>
-                      <div className="line">
-                        <b>{clp(a.result.precio_clp)}</b>
-                        {a.result.tienda ? " · " + a.result.tienda : ""}
-                      </div>
-                      {a.result.nota && <div className="nota">{a.result.nota}</div>}
-                      <div className="acts">
-                        {a.result.url && (
-                          <button onClick={() => openUrl(a.result!.url!)}><IExternal size={12} /> Ver oferta</button>
-                        )}
-                        <button onClick={() => applyPrice(it.id, a.result!)}><ICheck size={12} /> Usar este precio</button>
-                      </div>
-                    </div>
-                  )}
-                  {!a.result && a.raw && <div className="nota">{a.raw}</div>}
-                </div>
-              )}
             </div>
           );
         })}
@@ -138,7 +88,7 @@ export default function WishlistTab({ data, update }: { data: AppData; update: U
       </section>
 
       <footer className="mg-footer">
-        <span>&quot;Buscar con IA&quot; usa Gemini para estimar el precio más bajo. Es una estimación, revisa el enlace.</span>
+        <span>Usa Google Shopping para comparar precios y guarda aquí el enlace de la mejor oferta.</span>
       </footer>
     </div>
   );

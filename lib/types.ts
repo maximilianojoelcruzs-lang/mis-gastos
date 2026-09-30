@@ -14,14 +14,6 @@ export type AppData = {
   wishlist: { items: WishItem[] };
 };
 
-export type PriceResult = {
-  producto?: string;
-  precio_clp: number;
-  tienda?: string;
-  url?: string;
-  nota?: string;
-};
-
 export type MonthSummary = {
   id: string;
   label: string;

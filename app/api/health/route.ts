@@ -8,7 +8,6 @@ export function GET() {
   return NextResponse.json({
     ok: true,
     supabase: isConfigured,
-    gemini: !!process.env.GEMINI_API_KEY,
     time: new Date().toISOString(),
   });
 }
