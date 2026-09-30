@@ -1,11 +1,10 @@
 "use client";
 import { useState } from "react";
-import {
-  CATEGORIES, buildNextMonth, categoryOf, dueStatus, guessCategory, seedData, summarizeMonth,
-} from "@/lib/data";
+import { buildNextMonth, catColor, catOf, dueStatus, guessCategory, seedData, summarizeMonth } from "@/lib/data";
 import { clp, uid } from "@/lib/format";
 import type { AppData, CategoryId, Expense, Income, Month } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
+import Distribution from "./Distribution";
 import {
   IAlert, ICheck, IClock, ILayers, IMore, IPlus, IRepeat, IRotate, ITarget, ITrash, IX,
 } from "./icons";
@@ -18,7 +17,7 @@ export default function GastosTab({ data, setData, update }: Props) {
   const [filter, setFilter] = useState<CategoryId | "all">("all");
 
   const month = data.months.find((m) => m.id === data.activeId) || data.months[0];
-  const sum = summarizeMonth(month);
+  const sum = summarizeMonth(month, data.daily);
   const over = sum.balance < 0;
   const spentPct = sum.income > 0 ? Math.min(100, (sum.spent / sum.income) * 100) : sum.spent > 0 ? 100 : 0;
   const goalPct = month.goal > 0 ? Math.max(0, Math.min(100, (sum.balance / month.goal) * 100)) : 0;
@@ -27,7 +26,7 @@ export default function GastosTab({ data, setData, update }: Props) {
   const late = statuses.filter((s) => s?.tone === "late").length;
   const soon = statuses.filter((s) => s?.tone === "soon").length;
 
-  const usedCats = CATEGORIES.filter((c) => sum.byCategory[c.id] > 0);
+  const itemCats = data.categories.filter((c) => month.items.some((i) => i.category === c.id));
   const visible = month.items.filter((i) => filter === "all" || i.category === filter);
 
   const onMonth = (fn: (m: Month) => void) =>
@@ -73,7 +72,8 @@ export default function GastosTab({ data, setData, update }: Props) {
   };
 
   const reset = () => {
-    if (confirm("Esto borra todos los meses y vuelve a los datos de ejemplo. ¿Continuar?")) setData(seedData());
+    if (confirm("Esto borra todos tus datos (meses, gastos diarios, súper y compras) y vuelve a los datos de ejemplo. ¿Continuar?"))
+      setData(seedData());
   };
 
   return (
@@ -95,7 +95,7 @@ export default function GastosTab({ data, setData, update }: Props) {
         <div className="month-h">
           <input className="bare title" value={month.label} placeholder="Nombre del mes"
             onChange={(e) => onMonth((m) => { m.label = e.target.value; })} />
-          <input className="field sm" type="month" value={month.period} title="Mes calendario (para vencimientos)"
+          <input className="field sm" type="month" value={month.period} title="Mes calendario (para vencimientos y gastos diarios)"
             onChange={(e) => onMonth((m) => { m.period = e.target.value; })} />
           {data.months.length > 1 && (
             <button className="btn ghost icon sm danger" onClick={deleteMonth} title="Eliminar mes"><IX size={15} /></button>
@@ -111,16 +111,21 @@ export default function GastosTab({ data, setData, update }: Props) {
 
         <div className="stats">
           <div className="stat"><span className="l">Ingresos</span><span className="v">{clp(sum.income)}</span></div>
-          <div className="stat"><span className="l">Gastos</span><span className="v">{clp(sum.spent)}</span></div>
-          <div className="stat"><span className="l">Pagado</span><span className="v">{clp(sum.paid)}</span></div>
+          <div className="stat"><span className="l">Cuentas</span><span className="v">{clp(sum.bills)}</span></div>
+          <div className="stat"><span className="l">Gastos diarios</span><span className="v">{clp(sum.daily)}</span></div>
           <div className="stat"><span className="l">Por pagar</span><span className="v">{clp(sum.pending)}</span></div>
         </div>
+        {!month.period && (
+          <p className="muted" style={{ margin: "10px 0 0", fontSize: 12.5 }}>
+            Elige el mes calendario arriba para que los gastos diarios se sumen a este mes.
+          </p>
+        )}
 
         <div style={{ marginTop: 16 }}>
           <div className="bar"><i className={over ? "bad" : ""} style={{ width: spentPct + "%" }} /></div>
           <div className="bar-l">
             <span>Gastado {sum.income > 0 ? Math.round((sum.spent / sum.income) * 100) + "%" : "—"} del ingreso</span>
-            <span>{sum.spent > 0 ? Math.round((sum.paid / sum.spent) * 100) : 0}% pagado</span>
+            <span>{sum.bills > 0 ? Math.round((sum.paid / sum.bills) * 100) : 0}% de las cuentas pagado</span>
           </div>
         </div>
 
@@ -194,53 +199,36 @@ export default function GastosTab({ data, setData, update }: Props) {
         {/* En qué se va la plata */}
         <section className="card">
           <div className="card-h">
-            <h2>En qué se va la plata</h2>
+            <div>
+              <h2>En qué se va la plata</h2>
+              <div className="sub">Cuentas + gastos diarios</div>
+            </div>
           </div>
-          {usedCats.length === 0 ? (
-            <div className="empty">Agrega montos para ver la distribución.</div>
-          ) : (
-            <>
-              <div className="dist" role="img" aria-label="Distribución de gastos por categoría">
-                {usedCats.map((c) => (
-                  <span key={c.id} style={{ width: (sum.byCategory[c.id] / sum.spent) * 100 + "%", background: c.color }}
-                    title={`${c.label}: ${clp(sum.byCategory[c.id])}`} />
-                ))}
-              </div>
-              <div className="legend">
-                {usedCats.map((c) => (
-                  <div key={c.id}>
-                    <i className="dot" style={{ background: c.color }} />
-                    <span className="n">{c.label}</span>
-                    <span className="v">{Math.round((sum.byCategory[c.id] / sum.spent) * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          <Distribution categories={data.categories} byCategory={sum.byCategory} />
         </section>
       </div>
 
-      {/* Lista de gastos */}
+      {/* Lista de cuentas */}
       <section className="card">
         <div className="card-h">
-          <h2>Gastos</h2>
+          <h2>Cuentas</h2>
           <span className="muted">{month.items.length} {month.items.length === 1 ? "ítem" : "ítems"}</span>
         </div>
-        {usedCats.length > 1 && (
+        {itemCats.length > 1 && (
           <div className="chips" style={{ marginBottom: 10 }}>
             <button className={"chip " + (filter === "all" ? "on" : "")} onClick={() => setFilter("all")}>Todas</button>
-            {usedCats.map((c) => (
+            {itemCats.map((c) => (
               <button key={c.id} className={"chip " + (filter === c.id ? "on" : "")} onClick={() => setFilter(c.id)}>
-                <i className="dot" style={{ background: c.color }} /> {c.label}
+                <i className="dot" style={{ background: catColor(c.color) }} /> {c.label}
               </button>
             ))}
           </div>
         )}
         <div className="rows">
-          {visible.length === 0 && <div className="empty">No hay gastos aquí. Agrega el primero abajo.</div>}
+          {visible.length === 0 && <div className="empty">No hay cuentas aquí. Agrega la primera abajo.</div>}
           {visible.map((it) => {
             const st = dueStatus(it, month.period);
-            const cat = categoryOf(it.category);
+            const cat = catOf(data.categories, it.category);
             const isOpen = open === it.id;
             return (
               <div key={it.id}>
@@ -249,12 +237,12 @@ export default function GastosTab({ data, setData, update }: Props) {
                     onClick={() => onItem(it.id, (x) => { x.paid = !x.paid; })}>
                     {it.paid && <ICheck size={12} />}
                   </button>
-                  <i className="dot" style={{ background: cat.color }} title={cat.label} />
+                  <i className="dot" style={{ background: catColor(cat.color) }} title={cat.label} />
                   <div className="cell">
-                    <input className="bare name" value={it.name} placeholder="Nombre del gasto"
+                    <input className="bare name" value={it.name} placeholder="Nombre de la cuenta"
                       onChange={(e) => onItem(it.id, (x) => { x.name = e.target.value; })}
                       onBlur={(e) => onItem(it.id, (x) => {
-                        if (x.category === "otros" && e.target.value) x.category = guessCategory(e.target.value);
+                        if (x.category === "otros" && e.target.value) x.category = guessCategory(e.target.value, data.categories);
                       })} />
                     {(it.installment || it.fixed || st) && (
                       <div className="tags">
@@ -283,8 +271,8 @@ export default function GastosTab({ data, setData, update }: Props) {
                     <label className="f">
                       <span>Categoría</span>
                       <select className="field sm" value={it.category}
-                        onChange={(e) => onItem(it.id, (x) => { x.category = e.target.value as CategoryId; })}>
-                        {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                        onChange={(e) => onItem(it.id, (x) => { x.category = e.target.value; })}>
+                        {data.categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                       </select>
                     </label>
                     <label className="f">
@@ -340,14 +328,14 @@ export default function GastosTab({ data, setData, update }: Props) {
           })}
         </div>
         <div className="add-row">
-          <button className="btn dashed" onClick={() => addExpense(false)}><IPlus size={14} /> Agregar gasto</button>
+          <button className="btn dashed" onClick={() => addExpense(false)}><IPlus size={14} /> Agregar cuenta</button>
           <button className="btn dashed" onClick={() => addExpense(true)}><ILayers size={14} /> Compra en cuotas</button>
         </div>
       </section>
 
       <div className="foot-note">
-        <span>&quot;Nuevo mes&quot; copia tus ingresos, gastos fijos y cuotas pendientes.</span>
-        <button className="btn ghost sm" onClick={reset}><IRotate size={13} /> Restablecer</button>
+        <span>&quot;Nuevo mes&quot; copia tus ingresos, cuentas fijas y cuotas pendientes.</span>
+        <button className="btn ghost sm" onClick={reset}><IRotate size={13} /> Restablecer todo</button>
       </div>
     </div>
   );

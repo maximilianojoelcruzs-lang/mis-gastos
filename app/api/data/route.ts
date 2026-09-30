@@ -6,7 +6,7 @@ import { jsonError, requireUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const MAX_BYTES = 1_000_000;
+const MAX_BYTES = 3_000_000;
 
 export async function GET(req: Request) {
   const auth = await requireUser(req);
