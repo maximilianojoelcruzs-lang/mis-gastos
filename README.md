@@ -3,6 +3,17 @@
 App para controlar gastos del mes, lista del supermercado y próximas compras.
 Hecha con **Next.js (App Router + TypeScript)** y **Supabase** (login y datos).
 
+## Funciones
+
+- **Panel:** ahorro del período con filtro (3/6 meses, este año, todo), gastos por mes apilados por categoría,
+  comparación con el mes anterior, proyección de cierre y disponible por día.
+- **Gastos:** varios ingresos por mes, meta de ahorro, categorías con colores, gastos fijos que se copian
+  al crear el mes siguiente, fecha de vencimiento con alertas y compras en cuotas que avanzan solas.
+- **Supermercado:** listas guardadas, historial de precios por producto y botón para pasar el total a Gastos.
+- **Próximas compras:** prioridad, fecha objetivo con cuenta regresiva, ahorro por objetivo y Google Shopping.
+
+Los datos guardados con versiones anteriores se migran solos al abrir la app (`normalize()` en `lib/data.ts`).
+
 ## Estructura
 
 ```
