@@ -71,47 +71,103 @@ export default function Tracker({ session }: { session: Session }) {
       return draft;
     });
 
+  const email = session.user.email || "";
+  const month = data.months.find((m) => m.id === data.activeId) || data.months[0];
+  const tabs: { id: Tab; label: string; hint: string; icon: typeof IWallet; count: number; title: string; desc: string }[] = [
+    { id: "gastos", label: "Gastos", hint: "Presupuesto mensual", icon: IWallet, count: month.items.length,
+      title: "Control de gastos", desc: "Tu ingreso, tus cuentas y cuánto te queda libre este mes." },
+    { id: "market", label: "Supermercado", hint: "Lista de compra", icon: ICart,
+      count: data.market.items.filter((i) => !i.done).length,
+      title: "Supermercado", desc: "Arma la lista, estima el total y marca lo que ya va en el carro." },
+    { id: "wish", label: "Próximas compras", hint: "Deseos y regalos", icon: IGift,
+      count: data.wishlist.items.filter((i) => !i.done).length,
+      title: "Próximas compras", desc: "Guarda lo que quieres comprar o regalar y busca el mejor precio con IA." },
+  ];
+  const current = tabs.find((t) => t.id === tab)!;
+
+  const saveBadge =
+    save === "saving" ? (
+      <span className="mg-save on muted"><ISpin size={12} /> Guardando</span>
+    ) : save === "saved" ? (
+      <span className="mg-save on"><ICheck size={12} /> Guardado</span>
+    ) : save === "error" ? (
+      <span className="mg-save on err"><IX size={12} /> Error</span>
+    ) : (
+      <span className="mg-save" />
+    );
+  const logout = (
+    <button className="mg-logoutbtn" onClick={() => getSupabase()!.auth.signOut()} title="Cerrar sesión">
+      <ILogout size={16} />
+    </button>
+  );
+  const brand = (
+    <div className="fx-brand">
+      <span className="mg-logo"><IWallet size={20} /></span>
+      <div>
+        <b>Mis Gastos</b>
+        <small>FINANZAS · v2</small>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="mg-root">
-      <header className="mg-header">
-        <div className="mg-brand">
-          <span className="mg-logo"><IWallet size={20} /></span>
-          <div>
-            <h1>Mis Gastos</h1>
-            <p>{session.user.email}</p>
+    <>
+      <aside className="fx-side">
+        {brand}
+        <div className="fx-navlabel">Módulos</div>
+        <nav className="fx-nav">
+          {tabs.map((t, i) => (
+            <button key={t.id} className={"fx-navitem " + (tab === t.id ? "active" : "")} onClick={() => setTab(t.id)}>
+              <span className="ic"><t.icon size={17} /></span>
+              <span className="tx">
+                <b>{t.label}</b>
+                <small>{t.hint}</small>
+              </span>
+              <span className="num">{String(i + 1).padStart(2, "0")}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="fx-sidefoot">
+          <div className="fx-status">
+            <span className="led" /> Sistema en línea
+            <span style={{ marginLeft: "auto" }}>{saveBadge}</span>
+          </div>
+          <div className="fx-user">
+            <span className="fx-avatar">{(email[0] || "?").toUpperCase()}</span>
+            <span className="mail"><b>Mi cuenta</b>{email}</span>
+            {logout}
           </div>
         </div>
-        <div className="mg-headright">
-          {save === "saving" ? (
-            <span className="mg-save on muted"><ISpin size={13} /> Guardando…</span>
-          ) : save === "saved" ? (
-            <span className="mg-save on"><ICheck size={13} /> Guardado</span>
-          ) : save === "error" ? (
-            <span className="mg-save on err"><IX size={13} /> Error al guardar</span>
-          ) : (
-            <span className="mg-save" />
-          )}
-          <button className="mg-logoutbtn" onClick={() => getSupabase()!.auth.signOut()} title="Cerrar sesión">
-            <ILogout size={16} />
-          </button>
+      </aside>
+
+      <main className="fx-main">
+        <header className="fx-topbar">
+          {brand}
+          <div className="right">{saveBadge}{logout}</div>
+        </header>
+
+        <div className="fx-content fx-enter" key={tab}>
+          <div className="fx-pagehead">
+            <div>
+              <div className="fx-eyebrow">Módulo {String(tabs.indexOf(current) + 1).padStart(2, "0")} · {current.count} {current.count === 1 ? "activo" : "activos"}</div>
+              <h1>{current.title}</h1>
+              <p>{current.desc}</p>
+            </div>
+          </div>
+          {tab === "gastos" && <GastosTab data={data} setData={setData} update={update} />}
+          {tab === "market" && <MarketTab data={data} update={update} />}
+          {tab === "wish" && <WishlistTab data={data} update={update} />}
         </div>
-      </header>
+      </main>
 
-      <div className="mg-nav">
-        <button className={tab === "gastos" ? "active" : ""} onClick={() => setTab("gastos")}>
-          <IWallet size={16} /> Gastos
-        </button>
-        <button className={tab === "market" ? "active" : ""} onClick={() => setTab("market")}>
-          <ICart size={16} /> Supermercado
-        </button>
-        <button className={tab === "wish" ? "active" : ""} onClick={() => setTab("wish")}>
-          <IGift size={16} /> Próximas compras
-        </button>
-      </div>
-
-      {tab === "gastos" && <GastosTab data={data} setData={setData} update={update} />}
-      {tab === "market" && <MarketTab data={data} update={update} />}
-      {tab === "wish" && <WishlistTab data={data} update={update} />}
-    </div>
+      <nav className="fx-dock">
+        {tabs.map((t) => (
+          <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)}>
+            <t.icon size={19} />
+            {t.id === "wish" ? "Compras" : t.label}
+          </button>
+        ))}
+      </nav>
+    </>
   );
 }
