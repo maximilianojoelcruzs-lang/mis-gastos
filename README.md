@@ -31,16 +31,16 @@ app/
     data/route.ts          GET/PUT  datos del usuario (valida y normaliza en el servidor)
     resumen/route.ts       GET      totales por mes, supermercado y próximas compras
     health/route.ts        GET      estado del servicio
-components/                → pantallas y pestañas (Gastos, Supermercado, Próximas compras)
+components/                → pantallas (Panel, Cuentas, Gastos diarios, Supermercado, Próximas compras, Ajustes)
 lib/
   data.ts                  → datos de ejemplo, normalización y cálculos (compartido front/back)
   speech.ts                → convierte "leche, 2 panes y huevos" en productos
   useSharedList.ts         → sincronización de la lista compartida
   export.ts                → exportación a Excel y PDF
-supabase/
-  shared_lists.sql         → tablas, seguridad (RLS) y funciones de la lista compartida
   api.ts                   → cliente del backend (agrega el token de sesión)
   supabase/                → cliente del navegador y validación de sesión en el servidor
+supabase/
+  shared_lists.sql         → tablas, seguridad (RLS) y funciones de la lista compartida
 ```
 
 Todas las rutas `/api/*` (salvo `health`) exigen el header `Authorization: Bearer <token de Supabase>`.
