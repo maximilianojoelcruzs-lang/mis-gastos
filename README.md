@@ -6,11 +6,17 @@ Hecha con **Next.js (App Router + TypeScript)** y **Supabase** (login y datos).
 ## Funciones
 
 - **Panel:** ahorro del período con filtro (3/6 meses, este año, todo), gastos por mes apilados por categoría,
-  comparación con el mes anterior, proyección de cierre y disponible por día.
-- **Gastos:** varios ingresos por mes, meta de ahorro, categorías con colores, gastos fijos que se copian
-  al crear el mes siguiente, fecha de vencimiento con alertas y compras en cuotas que avanzan solas.
-- **Supermercado:** listas guardadas, historial de precios por producto y botón para pasar el total a Gastos.
+  comparación con el mes anterior, proyección de cierre, disponible por día y **resumen anual**.
+- **Cuentas (gastos mensuales):** varios ingresos, meta de ahorro, categorías con colores, gastos fijos que se
+  copian al crear el mes siguiente, vencimientos con alertas y compras en cuotas que avanzan solas.
+- **Gastos diarios:** anota micro-gastos (café, almacén, micro) en segundos; se descuentan del presupuesto del mes.
+  El botón **+** (gasto rápido) está disponible en todas las pantallas.
+- **Supermercado:** lista por pasillo, **tarjetas de alimentación** (Amipass, Sodexo, Edenred u otra) que reparten
+  la compra entre la tarjeta y tu bolsillo, precios por supermercado con comparación, historial y listas guardadas.
 - **Próximas compras:** prioridad, fecha objetivo con cuenta regresiva, ahorro por objetivo y Google Shopping.
+- **Buscador** (`/` o `Ctrl/Cmd+K`), **exportar a Excel y PDF**, **modo claro/oscuro/automático**,
+  **modo privado** (oculta los montos) y **categorías y supermercados propios** (Ajustes).
+- **Cuenta:** crear cuenta, "olvidé mi contraseña" y cambio de contraseña.
 
 Los datos guardados con versiones anteriores se migran solos al abrir la app (`normalize()` en `lib/data.ts`).
 
@@ -40,6 +46,15 @@ npm install
 cp .env.example .env.local
 npm run dev                  # http://localhost:3000
 ```
+
+## Configurar el registro y la recuperación de contraseña (Supabase)
+
+En el panel de Supabase, *Authentication*:
+
+1. *Providers → Email*: deja activado **Allow new users to sign up**. Si activas *Confirm email*, quien se registre
+   recibirá un correo para confirmar la cuenta.
+2. *URL Configuration*: en **Site URL** pon la dirección de tu app (por ejemplo `https://tu-app.vercel.app`) y agrégala
+   también a **Redirect URLs**. Sin esto, el enlace del correo de "olvidé mi contraseña" no vuelve a la app.
 
 ## Despliegue en Vercel
 

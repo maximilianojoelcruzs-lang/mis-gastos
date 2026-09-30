@@ -1,18 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { CATEGORIES, categoryOf, currentPeriod, summarizeMonth, todayISO } from "@/lib/data";
-import { clp } from "@/lib/format";
-import type { AppData, MonthSummary } from "@/lib/types";
-import { IArrowDown, IArrowUp, ITable, ITrend } from "./icons";
-
-const INK = "#EDEDEF";
-
-const compact = (n: number) => {
-  const a = Math.abs(n);
-  if (a >= 1e6) return "$" + (n / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, "").replace(".", ",") + "M";
-  if (a >= 1e3) return "$" + Math.round(n / 1e3) + "K";
-  return "$" + Math.round(n);
-};
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  catColor, catOf, currentPeriod, summarizeAll, summarizeYear, todayISO, yearsOf,
+} from "@/lib/data";
+import { clp, compact } from "@/lib/format";
+import type { AppData, Category, MonthSummary } from "@/lib/types";
+import { IArrowDown, IArrowUp, IDownload, ITable, ITrend } from "./icons";
 
 function niceMax(v: number) {
   if (v <= 0) return 100000;
@@ -61,7 +54,7 @@ function Tooltip({ tip }: { tip: Tip | null }) {
 }
 
 /** Columnas apiladas por categoría + marca del ingreso de cada mes. */
-function MonthsChart({ months }: { months: MonthSummary[] }) {
+function MonthsChart({ months, categories }: { months: MonthSummary[]; categories: Category[] }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const H = 240, top = 12, bottom = 26, left = 50, right = 4, GAP = 2;
@@ -76,13 +69,13 @@ function MonthsChart({ months }: { months: MonthSummary[] }) {
   const tip: Tip | null = (() => {
     if (hover === null) return null;
     const m = months[hover];
-    const cats = CATEGORIES.filter((c) => m.byCategory[c.id] > 0).reverse();
+    const cats = categories.filter((c) => (m.byCategory[c.id] || 0) > 0).reverse();
     return {
       x: Math.min(Math.max(left + band * hover + band / 2, 95), Math.max(95, width - 95)),
       y: Math.max(Math.min(y(Math.max(m.income, m.spent)), y(0)) - 10, 60),
       title: m.label || "Sin nombre",
       rows: [
-        ...cats.map((c) => ({ color: c.color, label: c.label, value: clp(m.byCategory[c.id]) })),
+        ...cats.map((c) => ({ color: catColor(c.color), label: c.label, value: clp(m.byCategory[c.id]) })),
         { label: "Total gastos", value: clp(m.spent), total: true },
         { label: "Ingreso", value: clp(m.income) },
       ],
@@ -101,7 +94,7 @@ function MonthsChart({ months }: { months: MonthSummary[] }) {
           ))}
           {months.map((m, i) => {
             const cx = left + band * i + band / 2;
-            const cats = CATEGORIES.filter((c) => m.byCategory[c.id] > 0);
+            const cats = categories.filter((c) => (m.byCategory[c.id] || 0) > 0);
             let acc = 0;
             const label = m.label || "—";
             return (
@@ -112,11 +105,12 @@ function MonthsChart({ months }: { months: MonthSummary[] }) {
                   const y0 = y(acc), y1 = y(acc + v);
                   acc += v;
                   const h = y0 - y1 - (k < cats.length - 1 ? GAP : 0);
-                  return <path key={c.id} d={barPath(cx - barW / 2, y1, barW, Math.max(h, 1), false, k === cats.length - 1)} fill={c.color} />;
+                  return <path key={c.id} d={barPath(cx - barW / 2, y1, barW, Math.max(h, 1), false, k === cats.length - 1)}
+                    style={{ fill: catColor(c.color) }} />;
                 })}
                 {m.income > 0 && (
                   <line x1={cx - barW / 2 - 6} x2={cx + barW / 2 + 6} y1={y(m.income)} y2={y(m.income)}
-                    stroke={INK} strokeWidth={2} strokeLinecap="round" />
+                    style={{ stroke: "var(--ink)" }} strokeWidth={2} strokeLinecap="round" />
                 )}
                 <text x={cx} y={H - 8} textAnchor="middle" className="axis">
                   {label.length > 10 ? label.slice(0, 9) + "…" : label}
@@ -133,7 +127,7 @@ function MonthsChart({ months }: { months: MonthSummary[] }) {
   );
 }
 
-function TopExpenses({ items }: { items: { id: string; name: string; amount: number; color: string }[] }) {
+function Bars({ items, label }: { items: { id: string; name: string; amount: number; color: string }[]; label: string }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const rowH = 32, barH = 12, labelW = Math.min(120, width * 0.36), valueW = 70;
   const max = Math.max(...items.map((i) => i.amount), 1);
@@ -141,7 +135,7 @@ function TopExpenses({ items }: { items: { id: string; name: string; amount: num
   return (
     <div ref={ref} className="chart">
       {width > 0 && (
-        <svg width={width} height={items.length * rowH} role="img" aria-label="Gastos más grandes del mes">
+        <svg width={width} height={items.length * rowH} role="img" aria-label={label}>
           {items.map((it, i) => {
             const w = (it.amount / max) * plotW;
             const yy = i * rowH + (rowH - barH) / 2;
@@ -150,7 +144,7 @@ function TopExpenses({ items }: { items: { id: string; name: string; amount: num
               <g key={it.id}>
                 <title>{`${name}: ${clp(it.amount)}`}</title>
                 <text x={0} y={yy + barH / 2} dy="0.32em" className="axis ink">{name.length > 14 ? name.slice(0, 13) + "…" : name}</text>
-                <path d={barPath(labelW, yy, w, barH, true)} fill={it.color} />
+                <path d={barPath(labelW, yy, w, barH, true)} style={{ fill: it.color }} />
                 <text x={labelW + w + 8} y={yy + barH / 2} dy="0.32em" className="axis">{compact(it.amount)}</text>
               </g>
             );
@@ -163,11 +157,13 @@ function TopExpenses({ items }: { items: { id: string; name: string; amount: num
 
 type Range = "3" | "6" | "year" | "all";
 
-export default function PanelTab({ data }: { data: AppData }) {
+export default function PanelTab({ data, onExport }: { data: AppData; onExport: () => void }) {
   const [table, setTable] = useState(false);
   const [range, setRange] = useState<Range>("6");
+  const years = yearsOf(data);
+  const [yearSel, setYearSel] = useState<string | null>(null);
 
-  const all = data.months.map(summarizeMonth);
+  const all = useMemo(() => summarizeAll(data), [data]);
   const year = currentPeriod().slice(0, 4);
   const months =
     range === "all" ? all
@@ -179,7 +175,7 @@ export default function PanelTab({ data }: { data: AppData }) {
     { income: 0, spent: 0, balance: 0 }
   );
   const rate = totals.income > 0 ? Math.round((totals.balance / totals.income) * 100) : 0;
-  const usedCats = CATEGORIES.filter((c) => months.some((m) => m.byCategory[c.id] > 0));
+  const usedCats = data.categories.filter((c) => months.some((m) => (m.byCategory[c.id] || 0) > 0));
 
   // Mes activo vs anterior
   const idx = Math.max(0, data.months.findIndex((m) => m.id === data.activeId));
@@ -188,7 +184,11 @@ export default function PanelTab({ data }: { data: AppData }) {
   const prev = idx > 0 ? all[idx - 1] : null;
   const pctChange = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
   const deltas = prev
-    ? CATEGORIES.map((c) => ({ c, diff: cur.byCategory[c.id] - prev.byCategory[c.id], pct: pctChange(cur.byCategory[c.id], prev.byCategory[c.id]) }))
+    ? data.categories
+        .map((c) => {
+          const a = cur.byCategory[c.id] || 0, b = prev.byCategory[c.id] || 0;
+          return { c, diff: a - b, pct: pctChange(a, b) };
+        })
         .filter((d) => d.diff !== 0)
         .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
         .slice(0, 4)
@@ -212,14 +212,28 @@ export default function PanelTab({ data }: { data: AppData }) {
     .filter((i) => i.amount > 0)
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 6)
-    .map((i) => ({ id: i.id, name: i.name, amount: i.amount, color: categoryOf(i.category).color }));
+    .map((i) => ({ id: i.id, name: i.name, amount: i.amount, color: catColor(catOf(data.categories, i.category).color) }));
+
+  // Resumen anual
+  const ySel = yearSel && years.includes(yearSel) ? yearSel : years.includes(year) ? year : years[years.length - 1];
+  const ys = ySel ? summarizeYear(data, ySel) : null;
+  const yearCats = ys
+    ? data.categories
+        .map((c) => ({ id: c.id, name: c.label, amount: ys.byCategory[c.id] || 0, color: catColor(c.color) }))
+        .filter((c) => c.amount > 0)
+        .sort((a, b) => b.amount - a.amount)
+    : [];
+  const topYearCat = yearCats[0];
 
   return (
     <div>
-      <div className="chips" style={{ marginBottom: 16 }}>
-        {([["3", "3 meses"], ["6", "6 meses"], ["year", "Este año"], ["all", "Todo"]] as [Range, string][]).map(([id, l]) => (
-          <button key={id} className={"chip " + (range === id ? "on" : "")} onClick={() => setRange(id)}>{l}</button>
-        ))}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        <div className="chips">
+          {([["3", "3 meses"], ["6", "6 meses"], ["year", "Este año"], ["all", "Todo"]] as [Range, string][]).map(([id, l]) => (
+            <button key={id} className={"chip " + (range === id ? "on" : "")} onClick={() => setRange(id)}>{l}</button>
+          ))}
+        </div>
+        <button className="btn sm" onClick={onExport}><IDownload size={13} /> Exportar</button>
       </div>
 
       <section className="card">
@@ -242,7 +256,7 @@ export default function PanelTab({ data }: { data: AppData }) {
         <div className="card-h">
           <div>
             <h2>Gastos por mes</h2>
-            <div className="sub">Por categoría · la línea blanca es el ingreso del mes</div>
+            <div className="sub">Cuentas + gastos diarios, por categoría · la línea es el ingreso del mes</div>
           </div>
           <button className="btn sm" onClick={() => setTable((t) => !t)}>
             <ITable size={13} /> {table ? "Ver gráfico" : "Ver tabla"}
@@ -253,14 +267,14 @@ export default function PanelTab({ data }: { data: AppData }) {
         ) : table ? (
           <div className="table-wrap">
             <table className="t">
-              <thead><tr><th>Mes</th><th>Ingreso</th><th>Gastos</th><th>Pagado</th><th>Ahorro</th></tr></thead>
+              <thead><tr><th>Mes</th><th>Ingreso</th><th>Cuentas</th><th>Diarios</th><th>Ahorro</th></tr></thead>
               <tbody>
                 {months.map((m) => (
                   <tr key={m.id}>
                     <td>{m.label || "Sin nombre"}</td>
                     <td>{clp(m.income)}</td>
-                    <td>{clp(m.spent)}</td>
-                    <td>{clp(m.paid)}</td>
+                    <td>{clp(m.bills)}</td>
+                    <td>{clp(m.daily)}</td>
                     <td className={m.balance < 0 ? "neg" : ""}>{m.balance < 0 ? "−" : ""}{clp(Math.abs(m.balance))}</td>
                   </tr>
                 ))}
@@ -269,12 +283,12 @@ export default function PanelTab({ data }: { data: AppData }) {
           </div>
         ) : (
           <>
-            <MonthsChart months={months} />
+            <MonthsChart months={months} categories={data.categories} />
             <div className="legend" style={{ marginTop: 14 }}>
               {usedCats.map((c) => (
-                <div key={c.id}><i className="dot" style={{ background: c.color }} /><span className="n">{c.label}</span></div>
+                <div key={c.id}><i className="dot" style={{ background: catColor(c.color) }} /><span className="n">{c.label}</span></div>
               ))}
-              <div><i style={{ width: 14, height: 2, background: INK, borderRadius: 2, flex: "none" }} /><span className="n">Ingreso</span></div>
+              <div><i style={{ width: 14, height: 2, background: "var(--ink)", borderRadius: 2, flex: "none" }} /><span className="n">Ingreso</span></div>
             </div>
           </>
         )}
@@ -299,7 +313,7 @@ export default function PanelTab({ data }: { data: AppData }) {
               </p>
               {deltas.map(({ c, diff, pct }) => (
                 <div className="delta" key={c.id}>
-                  <span className="n"><i className="dot" style={{ background: c.color }} /> {c.label}</span>
+                  <span className="n"><i className="dot" style={{ background: catColor(c.color) }} /> {c.label}</span>
                   <span className={"v " + (diff > 0 ? "up" : "down")}>
                     {diff > 0 ? <IArrowUp size={12} /> : <IArrowDown size={12} />}
                     {pct === null ? "Nuevo este mes" : `${Math.abs(pct)}% ${diff > 0 ? "más" : "menos"}`}
@@ -327,7 +341,7 @@ export default function PanelTab({ data }: { data: AppData }) {
               : "Saldo al cierre si pagas todo lo registrado y no agregas más gastos."}
           </p>
           {perDay && (
-            <div className="stats" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div className="stats c3" style={{ gridTemplateColumns: "1fr 1fr" }}>
               <div className="stat"><span className="l">Días restantes</span><span className="v">{perDay.days}</span></div>
               <div className="stat"><span className="l">Disponible por día</span><span className="v">{clp(Math.round(perDay.amount))}</span></div>
             </div>
@@ -338,12 +352,66 @@ export default function PanelTab({ data }: { data: AppData }) {
       <section className="card">
         <div className="card-h">
           <div>
-            <h2>Gastos más grandes</h2>
+            <h2>Cuentas más grandes</h2>
             <div className="sub">{active.label} · color según categoría</div>
           </div>
         </div>
-        {top.length ? <TopExpenses items={top} /> : <div className="empty">Sin gastos este mes.</div>}
+        {top.length ? <Bars items={top} label="Cuentas más grandes del mes" /> : <div className="empty">Sin cuentas este mes.</div>}
       </section>
+
+      {/* Resumen anual */}
+      {ys && (
+        <section className="card">
+          <div className="card-h">
+            <div>
+              <h2>Resumen del año {ys.year}</h2>
+              <div className="sub">{ys.months.length} {ys.months.length === 1 ? "mes registrado" : "meses registrados"}</div>
+            </div>
+            {years.length > 1 && (
+              <div className="chips">
+                {years.map((y) => (
+                  <button key={y} className={"chip " + (y === ys.year ? "on" : "")} onClick={() => setYearSel(y)}>{y}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="hero" style={{ marginBottom: 14 }}>
+            <div>
+              <div className="l">{ys.balance < 0 ? "Déficit del año" : "Ahorraste en el año"}</div>
+              <div className={"v " + (ys.balance < 0 ? "neg" : "")}>{clp(Math.abs(ys.balance))}</div>
+            </div>
+            <span className="badge">{ys.rate}% de tus ingresos</span>
+          </div>
+          <div className="stats c3">
+            <div className="stat"><span className="l">Ingresos</span><span className="v">{compact(ys.income)}</span></div>
+            <div className="stat"><span className="l">Gastos</span><span className="v">{compact(ys.spent)}</span></div>
+            <div className="stat"><span className="l">Promedio mensual</span><span className="v">{compact(ys.avgSpent)}</span></div>
+          </div>
+          <div className="facts">
+            <div className="fact">
+              <div className="l">Mes que más gastaste</div>
+              <b>{ys.biggestMonth?.label || "—"}</b>
+              <small className="num">{ys.biggestMonth ? clp(ys.biggestMonth.spent) : ""}</small>
+            </div>
+            <div className="fact">
+              <div className="l">Mes que más ahorraste</div>
+              <b>{ys.bestMonth?.label || "—"}</b>
+              <small className="num">{ys.bestMonth ? clp(ys.bestMonth.balance) : ""}</small>
+            </div>
+            <div className="fact">
+              <div className="l">Categoría más cara</div>
+              <b>{topYearCat?.name || "—"}</b>
+              <small className="num">{topYearCat && ys.spent > 0 ? `${clp(topYearCat.amount)} · ${Math.round((topYearCat.amount / ys.spent) * 100)}% de tus gastos` : ""}</small>
+            </div>
+            <div className="fact">
+              <div className="l">Cuentas vs día a día</div>
+              <b className="num">{ys.spent > 0 ? `${Math.round((ys.bills / ys.spent) * 100)}% / ${Math.round((ys.daily / ys.spent) * 100)}%` : "—"}</b>
+              <small>{clp(ys.bills)} en cuentas · {clp(ys.daily)} diarios</small>
+            </div>
+          </div>
+          {yearCats.length > 0 && <Bars items={yearCats.slice(0, 8)} label={`Gasto por categoría en ${ys.year}`} />}
+        </section>
+      )}
     </div>
   );
 }
