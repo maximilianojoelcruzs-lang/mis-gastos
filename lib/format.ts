@@ -55,3 +55,9 @@ export function traducirError(msg?: string) {
   if (m.includes("network") || m.includes("failed to fetch")) return "Sin conexión. Revisa tu internet.";
   return msg || "Ocurrió un error.";
 }
+
+/** Milisegundos de un timestamp de la base; sin zona horaria se asume UTC. */
+export function instant(ts: string | null | undefined): number {
+  if (!ts) return NaN;
+  return Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(ts) ? ts : ts + "Z");
+}
