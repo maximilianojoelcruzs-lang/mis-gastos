@@ -5,7 +5,13 @@ export type PaletteKey =
 
 export type CategoryId = string;
 
-export type Category = { id: CategoryId; label: string; color: PaletteKey };
+export type Category = {
+  id: CategoryId;
+  label: string;
+  color: PaletteKey;
+  /** Límite de gasto mensual (0 = sin límite). */
+  limit: number;
+};
 
 export type Installment = { current: number; total: number };
 
@@ -21,6 +27,7 @@ export type Expense = {
   dueDay: number | null;
   /** Compra en cuotas: cuota actual y total. */
   installment: Installment | null;
+  tags: string[];
 };
 
 export type Income = { id: string; name: string; amount: number };
@@ -48,7 +55,18 @@ export type DailyExpense = {
   card: string;
   /** Parte del monto que cubrió la tarjeta; el resto salió del bolsillo. */
   cardAmount: number;
+  tags: string[];
+  /** Quién pagó: "" = yo, o el id de una persona de `people`. */
+  paidBy: string;
+  /** Con quiénes se divide en partes iguales (ids de `people`, sin contarme). Vacío = gasto solo mío. */
+  split: string[];
 };
+
+/** Persona con la que compartes gastos (pareja, roommate…). */
+export type Person = { id: string; name: string };
+
+/** Pago para saldar cuentas: amount > 0 = la persona me pagó; < 0 = yo le pagué. */
+export type Settlement = { id: string; date: string; person: string; amount: number };
 
 export type AisleId =
   | "frutas" | "carnes" | "lacteos" | "panaderia" | "despensa"
@@ -134,13 +152,15 @@ export type WishItem = {
 };
 
 export type AppData = {
-  version: 5;
+  version: 6;
   activeId: string;
   categories: Category[];
   months: Month[];
   daily: DailyExpense[];
   market: Market;
   wishlist: { items: WishItem[] };
+  people: Person[];
+  settlements: Settlement[];
 };
 
 export type MonthSummary = {

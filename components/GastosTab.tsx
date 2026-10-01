@@ -1,18 +1,19 @@
 "use client";
 import { useState } from "react";
-import { buildNextMonth, catColor, catOf, dueStatus, guessCategory, seedData, summarizeMonth } from "@/lib/data";
+import { allTags, buildNextMonth, catColor, catOf, dueStatus, learnCategory, seedData, summarizeMonth } from "@/lib/data";
 import { clp, uid } from "@/lib/format";
 import type { AppData, CategoryId, Expense, Income, Month } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
 import Distribution from "./Distribution";
+import TagInput from "./TagInput";
 import {
   IAlert, ICheck, IClock, ILayers, IMore, IPlus, IRepeat, IRotate, ITarget, ITrash, IX,
 } from "./icons";
 import type { SetData, Update } from "./Tracker";
 
-type Props = { data: AppData; setData: SetData; update: Update };
+type Props = { data: AppData; setData: SetData; update: Update; canReset: boolean };
 
-export default function GastosTab({ data, setData, update }: Props) {
+export default function GastosTab({ data, setData, update, canReset }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<CategoryId | "all">("all");
 
@@ -50,6 +51,7 @@ export default function GastosTab({ data, setData, update }: Props) {
         category: filter === "all" ? "otros" : filter,
         fixed: false, dueDay: null,
         installment: installments ? { current: 1, total: 3 } : null,
+        tags: [],
       });
     });
     setOpen(installments ? id : null);
@@ -242,9 +244,9 @@ export default function GastosTab({ data, setData, update }: Props) {
                     <input className="bare name" value={it.name} placeholder="Nombre de la cuenta"
                       onChange={(e) => onItem(it.id, (x) => { x.name = e.target.value; })}
                       onBlur={(e) => onItem(it.id, (x) => {
-                        if (x.category === "otros" && e.target.value) x.category = guessCategory(e.target.value, data.categories);
+                        if (x.category === "otros" && e.target.value) x.category = learnCategory(data, e.target.value).id;
                       })} />
-                    {(it.installment || it.fixed || st) && (
+                    {(it.installment || it.fixed || st || it.tags.length > 0) && (
                       <div className="tags">
                         {st && (
                           <span className={"badge " + (st.tone === "late" ? "bad" : st.tone === "soon" ? "warn" : "")}>
@@ -255,6 +257,7 @@ export default function GastosTab({ data, setData, update }: Props) {
                           <span className="badge"><ILayers size={11} /> Cuota {it.installment.current}/{it.installment.total}</span>
                         )}
                         {it.fixed && !it.installment && <span className="badge"><IRepeat size={11} /> Fijo</span>}
+                        {it.tags.map((t) => <span key={t} className="badge">#{t}</span>)}
                       </div>
                     )}
                   </div>
@@ -310,6 +313,10 @@ export default function GastosTab({ data, setData, update }: Props) {
                           })} />
                       </div>
                     </div>
+                    <div className="f" style={{ gridColumn: "1 / -1" }}>
+                      <span>Etiquetas</span>
+                      <TagInput value={it.tags} onChange={(t) => onItem(it.id, (x) => { x.tags = t; })} suggestions={allTags(data)} />
+                    </div>
                     <div className="foot">
                       <span className="muted" style={{ fontSize: 12 }}>
                         {it.installment
@@ -335,7 +342,7 @@ export default function GastosTab({ data, setData, update }: Props) {
 
       <div className="foot-note">
         <span>&quot;Nuevo mes&quot; copia tus ingresos, cuentas fijas y cuotas pendientes.</span>
-        <button className="btn ghost sm" onClick={reset}><IRotate size={13} /> Restablecer todo</button>
+        {canReset && <button className="btn ghost sm" onClick={reset}><IRotate size={13} /> Restablecer todo</button>}
       </div>
     </div>
   );

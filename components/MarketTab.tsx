@@ -152,7 +152,7 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
         const target = draft.months.find((x) => x.id === draft.activeId) || draft.months[0];
         target.items.push({
           id: uid(), name: `Supermercado ${d}/${m}${draft.market.store ? ` · ${draft.market.store}` : ""}`, amount: pocket, paid: true,
-          category: draft.categories.some((c) => c.id === "comida") ? "comida" : "otros", fixed: false, dueDay: null, installment: null,
+          category: draft.categories.some((c) => c.id === "comida") ? "comida" : "otros", fixed: false, dueDay: null, installment: null, tags: ["súper"],
         });
       }
       logPurchase(draft.market, { total: split.total, card: usingCards ? split.covered : 0, pocket, store: draft.market.store, count: base.length });

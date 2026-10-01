@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
-import { catColor, catOf, chargeCard, currentPeriod, frequentDaily, guessCategory, todayISO } from "@/lib/data";
+import { allTags, catColor, catOf, chargeCard, currentPeriod, frequentDaily, learnCategory, limitAlert, todayISO } from "@/lib/data";
 import { clp, uid } from "@/lib/format";
 import type { AppData } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
 import Modal from "./Modal";
+import SplitPicker, { type SplitValue } from "./SplitPicker";
+import TagInput from "./TagInput";
 import type { Notify, Update } from "./Tracker";
 
 type Props = {
@@ -22,6 +24,8 @@ export default function QuickAdd({ data, update, notify, onClose, onSaved }: Pro
   const [manualCat, setManualCat] = useState<string | null>(null);
   const [date, setDate] = useState(todayISO());
   const [error, setError] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [split, setSplit] = useState<SplitValue>({ paidBy: "", split: [] });
   const cards = data.market.cards;
   // Recuerda con qué pagaste la última vez (típico: el almuerzo con la tarjeta).
   const [payer, setPayer] = useState<string>(() => {
@@ -32,23 +36,28 @@ export default function QuickAdd({ data, update, notify, onClose, onSaved }: Pro
       return "";
     }
   });
-  const payCard = cards.find((c) => c.id === payer);
+  // Si pagó otra persona, no se usa mi tarjeta.
+  const payCard = split.paidBy ? undefined : cards.find((c) => c.id === payer);
   const covered = payCard ? Math.min(Math.max(0, payCard.balance), amount) : 0;
 
-  const category = manualCat ?? guessCategory(name, data.categories);
+  const learned = learnCategory(data, name);
+  const category = manualCat ?? learned.id;
   const frequent = frequentDaily(data.daily);
 
   const submit = () => {
     if (amount <= 0) return setError("Escribe cuánto gastaste.");
     const finalName = name.trim() || catOf(data.categories, category).label;
+    const card = payCard ? payCard.id : "";
+    const entry = { id: uid(), date, name: finalName, amount, category, card, cardAmount: 0, tags, paidBy: split.paidBy, split: split.split };
     update((d) => {
-      const cardAmount = payer ? chargeCard(d.market, payer, amount) : 0;
-      d.daily.push({ id: uid(), date, name: finalName, amount, category, card: payer, cardAmount });
+      d.daily.push({ ...entry, cardAmount: card ? chargeCard(d.market, card, amount) : 0 });
     });
     try { localStorage.setItem("mg-payer", payer); } catch { /* sin almacenamiento */ }
-    notify(payCard && covered > 0
+    const alert = limitAlert({ ...data, daily: [...data.daily, { ...entry, cardAmount: covered }] }, category, date.slice(0, 7));
+    const base = payCard && covered > 0
       ? `Anotado: ${finalName} ${clp(amount)} · ${payCard.name} ${clp(covered)}${amount > covered ? ` + bolsillo ${clp(amount - covered)}` : ""}`
-      : `Anotado: ${finalName} ${clp(amount)}`);
+      : `Anotado: ${finalName} ${clp(amount)}`;
+    notify(alert ? `${base}. ${alert}` : base);
     onSaved?.(date);
     onClose();
   };
@@ -82,7 +91,9 @@ export default function QuickAdd({ data, update, notify, onClose, onSaved }: Pro
       )}
 
       <div className="f" style={{ marginBottom: 12 }}>
-        <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginBottom: 6, fontWeight: 500 }}>Categoría</span>
+        <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginBottom: 6, fontWeight: 500 }}>
+          Categoría{manualCat === null && learned.learned && name.trim() ? <span className="hintinline"> · según tu historial</span> : null}
+        </span>
         <div className="chips">
           {data.categories.map((c) => (
             <button key={c.id} type="button" className={"chip " + (category === c.id ? "on" : "")} onClick={() => setManualCat(c.id)}>
@@ -92,7 +103,18 @@ export default function QuickAdd({ data, update, notify, onClose, onSaved }: Pro
         </div>
       </div>
 
-      {cards.length > 0 && (
+      <div className="f" style={{ marginBottom: 12 }}>
+        <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginBottom: 6, fontWeight: 500 }}>Etiquetas</span>
+        <TagInput value={tags} onChange={setTags} suggestions={allTags(data)} />
+      </div>
+
+      {data.people.length > 0 && (
+        <div className="f" style={{ marginBottom: 12 }}>
+          <SplitPicker people={data.people} value={split} onChange={setSplit} amount={amount} />
+        </div>
+      )}
+
+      {cards.length > 0 && !split.paidBy && (
         <div className="f" style={{ marginBottom: 12 }}>
           <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginBottom: 6, fontWeight: 500 }}>Pagar con</span>
           <div className="payer">

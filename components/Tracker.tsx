@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { api } from "@/lib/api";
-import { currentPeriod, normalize } from "@/lib/data";
+import { ApiError, api } from "@/lib/api";
+import { addDays, currentPeriod, normalize, todayISO, weekSummary } from "@/lib/data";
 import { setPrivacy } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
 import { useSharedList } from "@/lib/useSharedList";
+import { ROLE_LABEL, useSpaces, type Space } from "@/lib/useSpaces";
 import type { AppData } from "@/lib/types";
 import ExportForm from "./ExportForm";
 import GastosTab from "./GastosTab";
@@ -19,7 +20,7 @@ import SettingsTab from "./SettingsTab";
 import Splash from "./Splash";
 import WishlistTab from "./WishlistTab";
 import {
-  ICart, ICoffee, IChart, ICheck, IEye, IEyeOff, IGift, ILogout, IPlus, ISearch, ISettings, ISpin, IWallet, IX,
+  ICart, ICoffee, IChart, ICheck, IEye, IEyeOff, IGift, ILock, ILogout, IPlus, ISearch, ISettings, ISpin, IUsers, IWallet, IX,
 } from "./icons";
 
 export type Update = (mutate: (draft: AppData) => void) => void;
@@ -45,6 +46,17 @@ const write = (key: string, value: string) => {
   }
 };
 
+const MY_SPACE: Space = { owner: null, label: "Mis finanzas", role: "dueño" };
+const POLL_MS = 30000;
+const sameTime = (a: string | null, b: string | null) => !!a && !!b && new Date(a).getTime() === new Date(b).getTime();
+
+/** Lunes de la semana de una fecha "YYYY-MM-DD". */
+function weekKey(iso: string) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dow = (new Date(y, m - 1, d).getDay() + 6) % 7;
+  return addDays(iso, -dow);
+}
+
 export default function Tracker({ session }: { session: Session }) {
   const userId = session.user.id;
   const [data, setDataState] = useState<AppData | null>(null);
@@ -63,36 +75,111 @@ export default function Tracker({ session }: { session: Session }) {
   const [priv, setPriv] = useState(() => read("mg-private") === "1");
   const skipSave = useRef(true);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const spaces = useSpaces(userId);
+  const [space, setSpace] = useState<Space>(MY_SPACE);
+  const readOnly = space.role === "lector";
+  const owner = space.owner;
+  // Refs para que los callbacks estables vean el estado actual.
+  const roRef = useRef(readOnly);
+  roRef.current = readOnly;
+  const ownerRef = useRef(owner);
+  ownerRef.current = owner;
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  /** Versión (updated_at) de los datos que tengo; se envía al guardar para detectar choques. */
+  const version = useRef<string | null>(null);
+  /** Hay cambios sin guardar. */
+  const dirty = useRef(false);
+  const chain = useRef<Promise<void>>(Promise.resolve());
 
   // Los montos se ocultan en todos los componentes hijos mientras dure el modo privado.
   setPrivacy(priv);
+
+  const notify: Notify = useCallback((text) => {
+    setToast(text);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 2600);
+  }, []);
 
   const setData: SetData = useCallback(
     (next) => setDataState((prev) => (typeof next === "function" ? next(prev!) : next)),
     []
   );
   const update: Update = useCallback(
-    (mutate) =>
+    (mutate) => {
+      if (roRef.current) return notify("Solo puedes ver estos datos: no tienes permiso para cambiarlos");
       setDataState((prev) => {
         const draft = structuredClone(prev!);
         mutate(draft);
         return draft;
-      }),
-    []
+      });
+    },
+    [notify]
   );
-  const shared = useSharedList(data, update);
+  // La lista compartida del súper es personal: no se sincroniza al mirar datos de otra persona.
+  const shared = useSharedList(owner ? null : data, update);
+
+  const reload = useCallback(async (message?: string) => {
+    const target = ownerRef.current;
+    const { content, updated_at } = await api.loadData(target);
+    if (ownerRef.current !== target) return;
+    version.current = updated_at;
+    dirty.current = false;
+    skipSave.current = true;
+    setDataState(normalize(content));
+    if (message) notify(message);
+  }, [notify]);
+
+  // Guarda en orden (una petición a la vez) enviando la versión que tenía.
+  // `target` es el dueño de esos datos al momento del cambio: así nunca se guardan en otro espacio.
+  const persist = useCallback((content: AppData, target: string | null) => {
+    const run = async () => {
+      if (ownerRef.current !== target) return;
+      try {
+        const r = await api.saveData(content, version.current, target);
+        version.current = r.updated_at;
+        if (dataRef.current === content) dirty.current = false;
+        setSave("saved");
+        setTimeout(() => setSave((s) => (s === "saved" ? "" : s)), 1600);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          setSave("");
+          await reload("Hubo cambios desde otro dispositivo o persona: se cargó la versión más reciente.").catch(() => setSave("error"));
+        } else {
+          setSave("error");
+          if (e instanceof ApiError && e.status === 403) notify(e.message);
+        }
+      }
+    };
+    chain.current = chain.current.then(run, run);
+    return chain.current;
+  }, [notify, reload]);
 
   useEffect(() => {
     let alive = true;
     skipSave.current = true;
+    dirty.current = false;
+    version.current = null;
+    setDataState(null);
     api
-      .loadData()
-      .then(({ content }) => alive && setDataState(normalize(content)))
-      .catch((e: Error) => alive && setLoadError(e.message));
+      .loadData(owner)
+      .then(({ content, updated_at }) => {
+        if (!alive) return;
+        version.current = updated_at;
+        skipSave.current = true;
+        setDataState(normalize(content));
+      })
+      .catch((e: Error) => {
+        if (!alive) return;
+        if (owner) {
+          notify("No se pudieron abrir esos datos: " + e.message);
+          setSpace(MY_SPACE);
+        } else setLoadError(e.message);
+      });
     return () => {
       alive = false;
     };
-  }, [userId]);
+  }, [userId, owner, notify]);
 
   useEffect(() => {
     if (data === null) return;
@@ -100,22 +187,58 @@ export default function Tracker({ session }: { session: Session }) {
       skipSave.current = false;
       return;
     }
+    if (roRef.current) return;
+    dirty.current = true;
     setSave("saving");
-    let hide: ReturnType<typeof setTimeout>;
-    const t = setTimeout(async () => {
-      try {
-        await api.saveData(data);
-        setSave("saved");
-        hide = setTimeout(() => setSave(""), 1600);
-      } catch {
-        setSave("error");
-      }
-    }, 600);
-    return () => {
-      clearTimeout(t);
-      clearTimeout(hide);
+    const target = ownerRef.current;
+    const t = setTimeout(() => persist(data, target), 600);
+    return () => clearTimeout(t);
+  }, [data, persist]);
+
+  // Si alguien más cambió los datos (otro dispositivo, o la persona con quien los compartes), se recargan.
+  useEffect(() => {
+    const check = () => {
+      if (dirty.current || document.visibilityState !== "visible" || !version.current) return;
+      const target = ownerRef.current;
+      api.version(target).then(({ updated_at }) => {
+        if (ownerRef.current === target && !dirty.current && version.current && !sameTime(updated_at, version.current))
+          reload(target ? "Se actualizaron los datos compartidos" : "Se cargaron cambios hechos en otro dispositivo").catch(() => {});
+      }).catch(() => {});
     };
-  }, [data]);
+    const id = setInterval(check, POLL_MS);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", check);
+    };
+  }, [reload]);
+
+  // Si te quitan el acceso o te cambian el rol, se refleja aquí.
+  useEffect(() => {
+    if (!owner || !spaces.ready) return;
+    const s = spaces.spaces.find((x) => x.owner === owner);
+    if (!s) {
+      setSpace(MY_SPACE);
+      notify("Ya no tienes acceso a esos datos");
+    } else if (s.role !== space.role) setSpace(s);
+  }, [spaces.spaces, spaces.ready, owner, space.role, notify]);
+
+  // Aviso del resumen semanal: una vez por semana.
+  useEffect(() => {
+    if (!data || owner) return;
+    const key = weekKey(todayISO());
+    if (read("mg-week-seen") === key) return;
+    write("mg-week-seen", key);
+    const w = weekSummary(data);
+    if (w.prevTotal > 0 || w.count > 0) setTimeout(() => notify("Tu resumen de la semana está listo en el Panel"), 800);
+  }, [data, owner, notify]);
+
+  const openSpace = async (s: Space) => {
+    if (s.owner === owner) return;
+    if (dirty.current && dataRef.current && !roRef.current) await persist(dataRef.current, owner);
+    setTab("panel");
+    setSpace(s);
+  };
 
   useEffect(() => {
     const root = document.documentElement;
@@ -143,12 +266,16 @@ export default function Tracker({ session }: { session: Session }) {
   }, []);
 
   if (loadError) return <Splash text={"No se pudieron cargar tus datos: " + loadError} />;
-  if (data === null) return <Splash text="Cargando tus gastos…" />;
+  if (data === null) return <Splash text={owner ? `Abriendo las finanzas de ${space.label}…` : "Cargando tus gastos…"} />;
 
-  const notify: Notify = (text) => {
-    setToast(text);
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 2600);
+  const downloadReport = async () => {
+    try {
+      const { exportData } = await import("@/lib/export");
+      const name = await exportData(data, "month", "pdf");
+      notify("Descargado: " + name);
+    } catch {
+      notify("No se pudo generar el PDF");
+    }
   };
 
   const openHit = (hit: SearchHit) => {
@@ -211,6 +338,14 @@ export default function Tracker({ session }: { session: Session }) {
     <>
       <aside className="side">
         {brand}
+        {spaces.spaces.length > 1 && (
+          <select className="field sm space-pick" aria-label="Finanzas que estás viendo" value={owner || ""}
+            onChange={(e) => { const s = spaces.spaces.find((x) => (x.owner || "") === e.target.value); if (s) openSpace(s); }}>
+            {spaces.spaces.map((s) => (
+              <option key={s.owner || "me"} value={s.owner || ""}>{s.owner ? `${s.label} · ${ROLE_LABEL[s.role as "lector"]}` : s.label}</option>
+            ))}
+          </select>
+        )}
         <button className="searchbtn" onClick={() => setSearch(true)}>
           <ISearch size={14} /> Buscar <kbd>/</kbd>
         </button>
@@ -246,15 +381,24 @@ export default function Tracker({ session }: { session: Session }) {
           </div>
         </header>
 
-        <div className="content fade" key={tab}>
+        <div className="content fade" key={tab + (owner || "")}>
+          {owner && (
+            <div className="space-banner" role="status">
+              {readOnly ? <ILock size={15} /> : <IUsers size={15} />}
+              <span style={{ flex: 1, minWidth: 180 }}>
+                Estás viendo las finanzas de <b>{space.label}</b> · {readOnly ? "solo lectura" : "puedes editar"}
+              </span>
+              <button className="btn sm" onClick={() => openSpace(MY_SPACE)}>Volver a mis finanzas</button>
+            </div>
+          )}
           <div className="head">
             <div>
               <h1>{current.title}</h1>
               <p>{current.desc}</p>
             </div>
           </div>
-          {tab === "panel" && <PanelTab data={data} onExport={() => setExporting(true)} />}
-          {tab === "gastos" && <GastosTab data={data} setData={setData} update={update} />}
+          {tab === "panel" && <PanelTab data={data} onExport={() => setExporting(true)} onReport={downloadReport} notify={notify} />}
+          {tab === "gastos" && <GastosTab data={data} setData={setData} update={update} canReset={!owner} />}
           {tab === "diario" && (
             <DiarioTab data={data} update={update} period={dailyPeriod} setPeriod={setDailyPeriod} notify={notify} />
           )}
@@ -262,14 +406,17 @@ export default function Tracker({ session }: { session: Session }) {
           {tab === "wish" && <WishlistTab data={data} update={update} />}
           {tab === "settings" && (
             <SettingsTab data={data} update={update} session={session} theme={theme} setTheme={setTheme}
-              priv={priv} setPriv={setPriv} notify={notify} onExport={() => setExporting(true)} />
+              priv={priv} setPriv={setPriv} notify={notify} onExport={() => setExporting(true)}
+              spaces={spaces} space={space} openSpace={openSpace} />
           )}
         </div>
       </main>
 
-      <button className="fab" onClick={() => setQuick(true)} title="Anotar un gasto rápido" aria-label="Anotar un gasto rápido">
-        <IPlus size={18} /><span>Gasto rápido</span>
-      </button>
+      {!readOnly && (
+        <button className="fab" onClick={() => setQuick(true)} title="Anotar un gasto rápido" aria-label="Anotar un gasto rápido">
+          <IPlus size={18} /><span>Gasto rápido</span>
+        </button>
+      )}
 
       <nav className="tabbar">
         {tabs.map((t) => (
