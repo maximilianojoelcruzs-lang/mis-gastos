@@ -3,8 +3,10 @@
 // GET  /api/data?meta=1     → solo la fecha de la última versión (para detectar cambios)
 // PUT  /api/data            → valida/normaliza y guarda. Si se envía `base` (la versión que
 //                             tenías) y alguien guardó otra entre medio, responde 409.
+//                             Devuelve la versión que quedó guardada en la base.
 import { NextResponse } from "next/server";
 import { normalize, seedData } from "@/lib/data";
+import { instant } from "@/lib/format";
 import { jsonError, requireUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -43,9 +45,10 @@ export async function GET(req: Request) {
 
   const content = seedData();
   const updated_at = new Date().toISOString();
-  const { error: insertError } = await supabase.from("user_data").upsert({ user_id: user.id, content, updated_at });
+  const { data: row, error: insertError } = await supabase
+    .from("user_data").upsert({ user_id: user.id, content, updated_at }).select("updated_at").maybeSingle<{ updated_at: string }>();
   if (insertError) return jsonError("No se pudieron crear tus datos iniciales.", 500);
-  return NextResponse.json({ content, updated_at });
+  return NextResponse.json({ content, updated_at: row?.updated_at || updated_at });
 }
 
 export async function PUT(req: Request) {
@@ -72,29 +75,27 @@ export async function PUT(req: Request) {
   const content = normalize(body.content);
   const updated_at = new Date().toISOString();
 
-  if (owner === user.id && !base) {
-    const { error } = await supabase.from("user_data").upsert({ user_id: user.id, content, updated_at });
-    if (error) return jsonError("No se pudo guardar.", 500);
-    return NextResponse.json({ ok: true, updated_at });
-  }
+  const { data: current, error: readError } = await supabase
+    .from("user_data").select("updated_at").eq("user_id", owner).maybeSingle<{ updated_at: string }>();
+  if (readError) return jsonError("No se pudo guardar.", 500);
 
-  let q = supabase.from("user_data").update({ content, updated_at }).eq("user_id", owner);
-  if (base) q = q.eq("updated_at", base);
-  const { data: rows, error } = await q.select("updated_at");
-  if (error) return jsonError("No se pudo guardar.", 500);
-  if (rows && rows.length) return NextResponse.json({ ok: true, updated_at });
-
-  // No se actualizó nada: o cambió la versión, o no tienes permiso para editar.
-  const { data: current } = await supabase.from("user_data").select("updated_at").eq("user_id", owner).maybeSingle();
   if (!current) {
     if (owner !== user.id) return jsonError("No tienes acceso a esos datos.", 403);
-    const { error: upErr } = await supabase.from("user_data").upsert({ user_id: user.id, content, updated_at });
-    if (upErr) return jsonError("No se pudo guardar.", 500);
-    return NextResponse.json({ ok: true, updated_at });
+    const { data: row, error } = await supabase
+      .from("user_data").upsert({ user_id: user.id, content, updated_at }).select("updated_at").maybeSingle<{ updated_at: string }>();
+    if (error) return jsonError("No se pudo guardar.", 500);
+    return NextResponse.json({ ok: true, updated_at: row?.updated_at || updated_at });
   }
-  // El dueño siempre puede editar su fila, así que para él es siempre un choque de versiones.
-  if (base && (owner === user.id || new Date(current.updated_at).getTime() !== new Date(base).getTime())) {
+
+  // Se compara el instante (no el texto): la base puede devolver otro formato o precisión.
+  if (base && instant(current.updated_at) !== instant(base)) {
     return NextResponse.json({ error: "Los datos cambiaron en otro dispositivo.", conflict: true, updated_at: current.updated_at }, { status: 409 });
   }
-  return jsonError("Solo tienes permiso para ver estos datos, no para cambiarlos.", 403);
+
+  const { data: rows, error } = await supabase
+    .from("user_data").update({ content, updated_at }).eq("user_id", owner).select("updated_at");
+  if (error) return jsonError("No se pudo guardar.", 500);
+  if (!rows || !rows.length) return jsonError("Solo tienes permiso para ver estos datos, no para cambiarlos.", 403);
+  // Se devuelve la versión que quedó guardada (un trigger de la tabla puede haberla cambiado).
+  return NextResponse.json({ ok: true, updated_at: (rows[0] as { updated_at: string }).updated_at || updated_at });
 }

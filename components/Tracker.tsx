@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api } from "@/lib/api";
 import { addDays, currentPeriod, normalize, todayISO, weekSummary } from "@/lib/data";
-import { setPrivacy } from "@/lib/format";
+import { instant, setPrivacy } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
 import { useSharedList } from "@/lib/useSharedList";
 import { ROLE_LABEL, useSpaces, type Space } from "@/lib/useSpaces";
@@ -48,7 +48,7 @@ const write = (key: string, value: string) => {
 
 const MY_SPACE: Space = { owner: null, label: "Mis finanzas", role: "dueño" };
 const POLL_MS = 30000;
-const sameTime = (a: string | null, b: string | null) => !!a && !!b && new Date(a).getTime() === new Date(b).getTime();
+const sameTime = (a: string | null, b: string | null) => !!a && !!b && instant(a) === instant(b);
 
 /** Lunes de la semana de una fecha "YYYY-MM-DD". */
 function weekKey(iso: string) {
