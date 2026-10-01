@@ -5,7 +5,10 @@ import { PALETTE, catColor } from "@/lib/data";
 import { traducirError, uid } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
 import type { AppData, PaletteKey } from "@/lib/types";
-import { IDownload, IPlus, ITrash, IX } from "./icons";
+import type { Space, Spaces } from "@/lib/useSpaces";
+import SharingCard from "./SharingCard";
+import CurrencyInput from "./CurrencyInput";
+import { IDownload, IPlus, ITrash, IUsers, IX } from "./icons";
 import type { Notify, Theme, Update } from "./Tracker";
 
 type Props = {
@@ -18,12 +21,16 @@ type Props = {
   setPriv: (v: boolean) => void;
   notify: Notify;
   onExport: () => void;
+  spaces: Spaces;
+  space: Space;
+  openSpace: (s: Space) => void;
 };
 
-export default function SettingsTab({ data, update, session, theme, setTheme, priv, setPriv, notify, onExport }: Props) {
+export default function SettingsTab({ data, update, session, theme, setTheme, priv, setPriv, notify, onExport, spaces, space, openSpace }: Props) {
   const [colorFor, setColorFor] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
   const [newStore, setNewStore] = useState("");
+  const [newPerson, setNewPerson] = useState("");
   const [pass, setPass] = useState("");
   const [passMsg, setPassMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -39,7 +46,7 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
       const color: PaletteKey = PALETTE.find((p) => !used.has(p.key))?.key || "slate";
       // Antes de "Otros", que siempre queda al final.
       const at = d.categories.findIndex((c) => c.id === "otros");
-      d.categories.splice(at < 0 ? d.categories.length : at, 0, { id: uid(), label, color });
+      d.categories.splice(at < 0 ? d.categories.length : at, 0, { id: uid(), label, color, limit: 0 });
     });
     setNewCat("");
   };
@@ -61,6 +68,30 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
     if (data.market.stores.some((s) => s.toLowerCase() === name.toLowerCase())) return notify("Ya tienes ese supermercado");
     update((d) => { d.market.stores.push(name); });
     setNewStore("");
+  };
+
+  const addPerson = () => {
+    const name = newPerson.trim().slice(0, 30);
+    if (!name) return;
+    if (data.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) return notify("Ya agregaste a esa persona");
+    if (data.people.length >= 10) return notify("Máximo 10 personas");
+    update((d) => { d.people.push({ id: uid(), name }); });
+    setNewPerson("");
+  };
+
+  const deletePerson = (id: string) => {
+    const p = data.people.find((x) => x.id === id);
+    const n = data.daily.filter((d) => d.split.includes(id)).length;
+    if (!p || !confirm(n ? `¿Quitar a ${p.name}? Sus ${n} gastos compartidos quedarán como solo tuyos.` : `¿Quitar a ${p.name}?`)) return;
+    update((d) => {
+      d.people = d.people.filter((x) => x.id !== id);
+      d.settlements = d.settlements.filter((x) => x.person !== id);
+      for (const x of d.daily) {
+        if (!x.split.includes(id)) continue;
+        x.split = x.split.filter((y) => y !== id);
+        if (x.paidBy === id) x.paidBy = "";
+      }
+    });
   };
 
   const changePassword = async () => {
@@ -95,8 +126,8 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
       <section className="card">
         <div className="card-h">
           <div>
-            <h2>Categorías</h2>
-            <div className="sub">Se usan en cuentas y gastos diarios. Toca el color para cambiarlo.</div>
+            <h2>Categorías y límites</h2>
+            <div className="sub">Se usan en cuentas y gastos diarios. Toca el color para cambiarlo. El límite es lo máximo que quieres gastar al mes en esa categoría ($0 = sin límite).</div>
           </div>
         </div>
         {data.categories.map((c) => (
@@ -107,7 +138,9 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
               <input className="bare name" value={c.label} maxLength={30} aria-label="Nombre de la categoría"
                 onChange={(e) => update((d) => { const x = d.categories.find((k) => k.id === c.id); if (x) x.label = e.target.value; })}
                 onBlur={(e) => { if (!e.target.value.trim()) update((d) => { const x = d.categories.find((k) => k.id === c.id); if (x) x.label = "Sin nombre"; }); }} />
-              <span className="muted" style={{ fontSize: 12 }}>{usage(c.id)} {usage(c.id) === 1 ? "gasto" : "gastos"}</span>
+              <span className="muted hide-sm" style={{ fontSize: 12 }}>{usage(c.id)} {usage(c.id) === 1 ? "gasto" : "gastos"}</span>
+              <CurrencyInput className="field sm amount limit-f" value={c.limit} placeholder="Sin límite" aria-label={`Límite mensual de ${c.label}`}
+                onChange={(v) => update((d) => { const x = d.categories.find((k) => k.id === c.id); if (x) x.limit = v; })} />
               {c.id !== "otros" ? (
                 <button className="btn ghost icon sm danger" title="Eliminar categoría" onClick={() => deleteCategory(c.id)}><ITrash size={14} /></button>
               ) : (
@@ -129,6 +162,33 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
           <input className="field" value={newCat} placeholder="Nueva categoría (ej: Mascotas)" maxLength={30}
             onChange={(e) => setNewCat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCategory()} style={{ flex: 1 }} />
           <button className="btn" style={{ flex: "none" }} onClick={addCategory}><IPlus size={14} /> Agregar</button>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="card-h">
+          <div>
+            <h2>Gastos compartidos</h2>
+            <div className="sub">Personas con las que divides gastos (pareja, roommate…). Al anotar un gasto eliges con quién lo compartes y quién pagó, y en “Gastos diarios” ves quién le debe a quién.</div>
+          </div>
+          <IUsers size={16} />
+        </div>
+        <div className="chips">
+          {data.people.map((p) => (
+            <span key={p.id} className="chip">
+              {p.name}
+              <button className="x" aria-label={`Quitar a ${p.name}`} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}
+                onClick={() => deletePerson(p.id)}>
+                <IX size={12} />
+              </button>
+            </span>
+          ))}
+          {data.people.length === 0 && <span className="muted" style={{ fontSize: 13 }}>Aún no agregas a nadie.</span>}
+        </div>
+        <div className="add-row">
+          <input className="field" value={newPerson} placeholder="Nombre (ej: Cami)" maxLength={30}
+            onChange={(e) => setNewPerson(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPerson()} style={{ flex: 1 }} />
+          <button className="btn" style={{ flex: "none" }} onClick={addPerson}><IPlus size={14} /> Agregar</button>
         </div>
       </section>
 
@@ -157,6 +217,8 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
           <button className="btn" style={{ flex: "none" }} onClick={addStore}><IPlus size={14} /> Agregar</button>
         </div>
       </section>
+
+      <SharingCard spaces={spaces} space={space} openSpace={openSpace} notify={notify} userId={session.user.id} />
 
       <section className="card">
         <div className="card-h"><h2>Tus datos</h2></div>

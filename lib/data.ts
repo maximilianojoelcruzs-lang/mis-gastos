@@ -3,7 +3,7 @@
 // valida lo mismo que el front.
 import type {
   AisleId, AppData, BenefitCard, Category, CategoryId, DailyExpense, Expense, FrequentProduct, Market, MarketItem, Month,
-  MonthSummary, PaletteKey, PricePoint, Priority, Purchase, WishItem, YearSummary,
+  MonthSummary, PaletteKey, Person, PricePoint, Priority, Purchase, Settlement, WishItem, YearSummary,
 } from "./types";
 import { uid } from "./format";
 
@@ -26,14 +26,14 @@ const PALETTE_KEYS = PALETTE.map((p) => p.key);
 export const catColor = (key: string) => `var(--p-${PALETTE_KEYS.includes(key as PaletteKey) ? key : "slate"})`;
 
 export const DEFAULT_CATEGORIES: Category[] = [
-  { id: "hogar", label: "Hogar", color: "blue" },
-  { id: "servicios", label: "Servicios", color: "orange" },
-  { id: "comida", label: "Comida", color: "aqua" },
-  { id: "deudas", label: "Deudas", color: "yellow" },
-  { id: "transporte", label: "Transporte", color: "magenta" },
-  { id: "salud", label: "Salud", color: "green" },
-  { id: "ocio", label: "Ocio", color: "violet" },
-  { id: "otros", label: "Otros", color: "slate" },
+  { id: "hogar", label: "Hogar", color: "blue", limit: 0 },
+  { id: "servicios", label: "Servicios", color: "orange", limit: 0 },
+  { id: "comida", label: "Comida", color: "aqua", limit: 0 },
+  { id: "deudas", label: "Deudas", color: "yellow", limit: 0 },
+  { id: "transporte", label: "Transporte", color: "magenta", limit: 0 },
+  { id: "salud", label: "Salud", color: "green", limit: 0 },
+  { id: "ocio", label: "Ocio", color: "violet", limit: 0 },
+  { id: "otros", label: "Otros", color: "slate", limit: 0 },
 ];
 const FALLBACK: Category = DEFAULT_CATEGORIES[7];
 
@@ -63,6 +63,56 @@ export function guessCategory(name: string, categories: Category[] = DEFAULT_CAT
   }
   for (const [id, re] of KEYWORDS) if (re.test(n) && categories.some((c) => c.id === id)) return id;
   return "otros";
+}
+
+/** Categoría aprendida de tu historial: si ya anotaste algo con ese nombre (o que
+ *  empieza con la misma palabra, ej. "Jumbo Costanera"), usa la última que elegiste. */
+export function learnCategory(data: Pick<AppData, "months" | "daily" | "categories">, name: string): { id: CategoryId; learned: boolean } {
+  const n = norm(name);
+  if (!n) return { id: "otros", learned: false };
+  const first = n.split(" ")[0];
+  let exact: { id: CategoryId; at: string } | null = null;
+  let word: { id: CategoryId; at: string } | null = null;
+  const valid = (id: CategoryId) => id !== "otros" && data.categories.some((c) => c.id === id);
+  const seen = (itemName: string, id: CategoryId, at: string) => {
+    if (!valid(id)) return;
+    const k = norm(itemName);
+    if (!k) return;
+    if (k === n) {
+      if (!exact || at >= exact.at) exact = { id, at };
+    } else if (first.length >= 4 && k.split(" ")[0] === first) {
+      if (!word || at >= word.at) word = { id, at };
+    }
+  };
+  for (const d of data.daily) seen(d.name, d.category, d.date);
+  for (const m of data.months) for (const i of m.items) seen(i.name, i.category, (m.period || "0000-00") + "-00");
+  const hit = (exact || word) as { id: CategoryId } | null;
+  if (hit) return { id: hit.id, learned: true };
+  return { id: guessCategory(name, data.categories), learned: false };
+}
+
+// ---------- Etiquetas ----------
+export const MAX_TAGS = 6;
+export const cleanTag = (t: string) => t.replace(/^#+/, "").replace(/[,\s]+/g, " ").trim().toLowerCase().slice(0, 24);
+export function normTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const t of raw) {
+    if (typeof t !== "string") continue;
+    const c = cleanTag(t);
+    if (c && !out.includes(c)) out.push(c);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
+/** Todas las etiquetas usadas, las más frecuentes primero. */
+export function allTags(data: AppData): string[] {
+  const count = new Map<string, number>();
+  const add = (tags: string[]) => tags.forEach((t) => count.set(t, (count.get(t) || 0) + 1));
+  for (const m of data.months) for (const i of m.items) add(i.tags);
+  for (const d of data.daily) add(d.tags);
+  return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
 }
 
 // ---------- Fechas ----------
@@ -286,7 +336,7 @@ export function storeComparison(market: Market): { quotes: StoreQuote[]; best: s
 
 // ---------- Semilla ----------
 const exp = (id: string, name: string, amount: number, category: CategoryId, fixed = true, dueDay: number | null = null): Expense =>
-  ({ id, name, amount, paid: false, category, fixed, dueDay, installment: null });
+  ({ id, name, amount, paid: false, category, fixed, dueDay, installment: null, tags: [] });
 
 export function seedMarket(): Market {
   return { items: [], templates: [], history: {}, stores: [...DEFAULT_STORES], store: "", cards: [], budget: 0, purchases: [], frequent: {}, shared: null };
@@ -295,7 +345,7 @@ export function seedMarket(): Market {
 export function seedData(): AppData {
   const period = currentPeriod();
   return {
-    version: 5,
+    version: 6,
     activeId: "m1",
     categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
     months: [
@@ -321,6 +371,8 @@ export function seedData(): AppData {
     daily: [],
     market: seedMarket(),
     wishlist: { items: [] },
+    people: [],
+    settlements: [],
   };
 }
 
@@ -341,7 +393,7 @@ function normalizeCategories(raw: any): Category[] {
       const label = str(c?.label).trim().slice(0, 30);
       if (!id || !label || seen.has(id)) continue;
       seen.add(id);
-      out.push({ id, label, color: PALETTE_KEYS.includes(c?.color) ? c.color : "slate" });
+      out.push({ id, label, color: PALETTE_KEYS.includes(c?.color) ? c.color : "slate", limit: Math.max(0, Math.round(num(c?.limit))) });
     }
   }
   if (!out.length) return DEFAULT_CATEGORIES.map((c) => ({ ...c }));
@@ -371,6 +423,7 @@ function normalizeExpense(i: any, categories: Category[]): Expense {
     fixed: typeof i?.fixed === "boolean" ? i.fixed : FIXED_BY_DEFAULT.includes(category),
     dueDay: dueDay >= 1 && dueDay <= 31 ? dueDay : null,
     installment: total >= 2 ? { current, total } : null,
+    tags: normTags(i?.tags),
   };
 }
 
@@ -389,17 +442,37 @@ function normalizeMonth(m: any, categories: Category[]): Month {
   };
 }
 
-function normalizeDaily(d: any, categories: Category[]): DailyExpense {
+function normalizeDaily(d: any, categories: Category[], people: Person[]): DailyExpense {
   const name = str(d?.name);
+  const ids = people.map((p) => p.id);
+  const paidBy = typeof d?.paidBy === "string" && ids.includes(d.paidBy) ? d.paidBy : "";
+  const split: string[] = Array.isArray(d?.split) ? [...new Set<string>(d.split.filter((x: unknown) => typeof x === "string" && ids.includes(x)))] : [];
+  if (paidBy && !split.includes(paidBy)) split.push(paidBy);
+  // Solo se paga con mi tarjeta de alimentación si pagué yo.
+  const card = paidBy ? "" : str(d?.card);
   return {
     id: d?.id || uid(),
     date: isDate(d?.date) ? d.date : todayISO(),
     name,
     amount: num(d?.amount),
     category: pickCategory(d?.category, name, categories),
-    card: str(d?.card),
-    cardAmount: str(d?.card) ? Math.min(Math.max(0, num(d?.cardAmount)), num(d?.amount)) : 0,
+    card,
+    cardAmount: card ? Math.min(Math.max(0, num(d?.cardAmount)), num(d?.amount)) : 0,
+    tags: normTags(d?.tags),
+    paidBy,
+    split,
   };
+}
+
+function normalizePeople(raw: any): Person[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Person[] = [];
+  for (const p of raw) {
+    const id = str(p?.id);
+    const name = str(p?.name).trim().slice(0, 30);
+    if (id && name && !out.some((x) => x.id === id)) out.push({ id, name });
+  }
+  return out.slice(0, 10);
 }
 
 function normalizeMarket(raw: any): Market {
@@ -497,19 +570,166 @@ export function normalize(raw: any): AppData {
   const months: Month[] =
     Array.isArray(raw.months) && raw.months.length ? raw.months.map((m: any) => normalizeMonth(m, categories)) : seed.months;
   const activeId = months.find((m) => m.id === raw.activeId) ? raw.activeId : months[months.length - 1].id;
+  const people = normalizePeople(raw.people);
+  const settlements: Settlement[] = Array.isArray(raw.settlements)
+    ? raw.settlements
+        .filter((x: any) => isDate(x?.date) && people.some((p) => p.id === x?.person) && num(x?.amount) !== 0)
+        .map((x: any) => ({ id: x?.id || uid(), date: x.date, person: x.person, amount: Math.round(num(x.amount)) }))
+        .slice(-300)
+    : [];
   return {
-    version: 5,
+    version: 6,
     activeId,
     categories,
     months,
-    daily: Array.isArray(raw.daily) ? raw.daily.map((d: any) => normalizeDaily(d, categories)) : [],
+    daily: Array.isArray(raw.daily) ? raw.daily.map((d: any) => normalizeDaily(d, categories, people)) : [],
     market: normalizeMarket(raw.market),
     wishlist: { items: Array.isArray(raw.wishlist?.items) ? raw.wishlist.items.map(normalizeWish) : [] },
+    people,
+    settlements,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ---------- Cálculos ----------
+/** Cómo se reparte un gasto diario: mi parte (si es compartido, en partes iguales),
+ *  lo que de esa parte cubrió mi tarjeta de alimentación y lo que salió de mi bolsillo. */
+export function dailyParts(d: DailyExpense) {
+  const amount = d.amount || 0;
+  const mine = d.split.length ? Math.round(amount / (d.split.length + 1)) : amount;
+  const card = d.paidBy ? 0 : Math.min(d.cardAmount || 0, mine);
+  return { mine, card, pocket: mine - card };
+}
+
+export type LimitStatus = { cat: Category; spent: number; limit: number; pct: number; tone: "ok" | "warn" | "over" };
+
+/** Estado de los límites mensuales por categoría (solo las que tienen límite). */
+export function limitStatus(categories: Category[], byCategory: Record<CategoryId, number>): LimitStatus[] {
+  return categories
+    .filter((c) => c.limit > 0)
+    .map((c) => {
+      const spent = byCategory[c.id] || 0;
+      const pct = Math.round((spent / c.limit) * 100);
+      return { cat: c, spent, limit: c.limit, pct, tone: (pct > 100 ? "over" : pct >= 80 ? "warn" : "ok") as LimitStatus["tone"] };
+    })
+    .sort((a, b) => b.pct - a.pct);
+}
+
+/** Gasto por categoría de un mes calendario: cuentas del mes (si existe) + diarios de mi bolsillo. */
+export function spentByCategory(data: AppData, period: string): Record<CategoryId, number> {
+  const month = data.months.find((m) => m.period === period);
+  if (month) return summarizeMonth(month, data.daily).byCategory;
+  const out: Record<CategoryId, number> = {};
+  for (const d of data.daily) if (d.date.startsWith(period)) out[d.category] = (out[d.category] || 0) + dailyParts(d).pocket;
+  return out;
+}
+
+/** Aviso al anotar un gasto: ¿esta categoría se acerca o pasa su límite en ese mes? */
+export function limitAlert(data: AppData, category: CategoryId, period: string): string | null {
+  const st = limitStatus(data.categories, spentByCategory(data, period)).find((s) => s.cat.id === category);
+  if (!st || st.tone === "ok") return null;
+  return st.tone === "over"
+    ? `Te pasaste del límite de ${st.cat.label}: llevas ${st.pct}% del mes`
+    : `Ojo: llevas ${st.pct}% del límite de ${st.cat.label}`;
+}
+
+// ---------- Gastos compartidos ----------
+export type PersonBalance = { person: Person; balance: number; owedToMe: number; iOwe: number; settled: number; count: number };
+
+/** Cuentas claras con cada persona: balance > 0 = me debe; < 0 = le debo. */
+export function balances(data: AppData): PersonBalance[] {
+  return data.people.map((person) => {
+    let owedToMe = 0, iOwe = 0, count = 0;
+    for (const d of data.daily) {
+      if (!d.split.includes(person.id)) continue;
+      const share = Math.round((d.amount || 0) / (d.split.length + 1));
+      if (!d.paidBy) owedToMe += share;
+      else if (d.paidBy === person.id) iOwe += share;
+      else continue;
+      count++;
+    }
+    const settled = data.settlements.filter((s) => s.person === person.id).reduce((s, x) => s + x.amount, 0);
+    return { person, owedToMe, iOwe, settled, count, balance: owedToMe - iOwe - settled };
+  });
+}
+
+// ---------- Resumen semanal ----------
+const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export function addDays(iso: string, delta: number) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return isoOf(new Date(y, m - 1, d + delta));
+}
+
+export type WeekSummary = {
+  from: string;
+  to: string;
+  total: number;
+  prevTotal: number;
+  count: number;
+  noSpendDays: number;
+  topCategory: { cat: Category; amount: number } | null;
+  biggest: DailyExpense | null;
+  byDay: { date: string; amount: number }[];
+  /** Cuentas del mes que vencen en los próximos 7 días y no están pagadas. */
+  upcoming: { name: string; amount: number; day: number }[];
+};
+
+/** Resumen de los últimos 7 días (incluido hoy) comparado con los 7 anteriores. Usa mi parte de cada gasto. */
+export function weekSummary(data: AppData, today = todayISO()): WeekSummary {
+  const from = addDays(today, -6);
+  const prevFrom = addDays(today, -13);
+  const byDay = Array.from({ length: 7 }, (_, i) => ({ date: addDays(from, i), amount: 0 }));
+  let total = 0, prevTotal = 0, count = 0;
+  let biggest: DailyExpense | null = null;
+  const cats: Record<string, number> = {};
+  for (const d of data.daily) {
+    const mine = dailyParts(d).mine;
+    if (d.date >= from && d.date <= today) {
+      total += mine;
+      count++;
+      cats[d.category] = (cats[d.category] || 0) + mine;
+      const slot = byDay.find((x) => x.date === d.date);
+      if (slot) slot.amount += mine;
+      if (!biggest || mine > dailyParts(biggest).mine) biggest = d;
+    } else if (d.date >= prevFrom && d.date < from) prevTotal += mine;
+  }
+  const topId = Object.entries(cats).sort((a, b) => b[1] - a[1])[0];
+  const upcoming: WeekSummary["upcoming"] = [];
+  const period = today.slice(0, 7);
+  const month = data.months.find((m) => m.period === period);
+  if (month) {
+    for (const i of month.items) {
+      if (i.paid || !i.dueDay) continue;
+      const day = Math.min(i.dueDay, daysInPeriod(period));
+      const diff = daysUntil(`${period}-${String(day).padStart(2, "0")}`)!;
+      if (diff >= 0 && diff <= 7) upcoming.push({ name: i.name || "Cuenta", amount: i.amount, day });
+    }
+    upcoming.sort((a, b) => a.day - b.day);
+  }
+  return {
+    from, to: today, total, prevTotal, count,
+    noSpendDays: byDay.filter((x) => x.amount === 0).length,
+    topCategory: topId ? { cat: catOf(data.categories, topId[0]), amount: topId[1] } : null,
+    biggest, byDay, upcoming,
+  };
+}
+
+/** Totales por etiqueta (mi parte de los diarios + cuentas), opcionalmente de un año "YYYY". */
+export function tagTotals(data: AppData, year = ""): { tag: string; amount: number; count: number }[] {
+  const map = new Map<string, { amount: number; count: number }>();
+  const add = (tags: string[], amount: number) => {
+    for (const t of tags) {
+      const cur = map.get(t) || { amount: 0, count: 0 };
+      cur.amount += amount;
+      cur.count++;
+      map.set(t, cur);
+    }
+  };
+  for (const m of data.months) if (!year || m.period.startsWith(year)) for (const i of m.items) add(i.tags, i.amount || 0);
+  for (const d of data.daily) if (!year || d.date.startsWith(year)) add(d.tags, dailyParts(d).pocket);
+  return [...map.entries()].map(([tag, v]) => ({ tag, ...v })).sort((a, b) => b.amount - a.amount);
+}
+
 export const monthIncome = (m: Month) => m.incomes.reduce((s, i) => s + (i.amount || 0), 0);
 
 /** Resume un mes. Los gastos diarios se suman según el mes calendario (`period`). */
@@ -530,8 +750,7 @@ export function summarizeMonth(m: Month, daily: DailyExpense[] = []): MonthSumma
   if (m.period) {
     for (const d of daily) {
       if (!d.date.startsWith(m.period)) continue;
-      const card = Math.min(d.cardAmount || 0, d.amount || 0);
-      const pocket = (d.amount || 0) - card;
+      const { card, pocket } = dailyParts(d);
       dailyTotal += pocket;
       dailyCard += card;
       byCategory[d.category] = (byCategory[d.category] || 0) + pocket;

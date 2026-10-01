@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  catColor, catOf, currentPeriod, summarizeAll, summarizeYear, todayISO, yearsOf,
+  catColor, catOf, currentPeriod, limitStatus, summarizeAll, summarizeYear, tagTotals, todayISO, weekSummary, yearsOf,
+  type WeekSummary,
 } from "@/lib/data";
-import { clp, compact } from "@/lib/format";
-import type { AppData, Category, MonthSummary } from "@/lib/types";
-import { IArrowDown, IArrowUp, IDownload, ITable, ITrend } from "./icons";
+import { clp, compact, isPrivate } from "@/lib/format";
+import type { AppData, Category, CategoryId, MonthSummary } from "@/lib/types";
+import { IAlert, IArrowDown, IArrowUp, ICalendar, ICheck, ICopy, IDownload, ITable, ITrend } from "./icons";
 
 function niceMax(v: number) {
   if (v <= 0) return 100000;
@@ -155,9 +156,107 @@ function Bars({ items, label }: { items: { id: string; name: string; amount: num
   );
 }
 
+const DOW = ["D", "L", "M", "M", "J", "V", "S"];
+const dow = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+};
+const shortDate = (iso: string) => `${Number(iso.slice(8, 10))}/${Number(iso.slice(5, 7))}`;
+
+/** Columnas de los últimos 7 días (una sola serie, sin leyenda). */
+function WeekBars({ week }: { week: WeekSummary }) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<number | null>(null);
+  const H = 120, top = 8, bottom = 20;
+  const plotH = H - top - bottom;
+  const max = Math.max(...week.byDay.map((d) => d.amount), 1);
+  const band = width / 7;
+  const barW = Math.max(8, Math.min(28, band * 0.5));
+  const h = hover === null ? null : week.byDay[hover];
+  return (
+    <div ref={ref} className="chart" onMouseLeave={() => setHover(null)}>
+      {width > 0 && (
+        <svg width={width} height={H} role="img" aria-label="Gasto diario de los últimos 7 días">
+          <line x1={0} x2={width} y1={top + plotH} y2={top + plotH} className="gridline" />
+          {week.byDay.map((d, i) => {
+            const bh = d.amount > 0 ? Math.max(2, (d.amount / max) * plotH) : 0;
+            const cx = band * i + band / 2;
+            return (
+              <g key={d.date} opacity={hover === null || hover === i ? 1 : 0.45}>
+                {bh > 0 && <path d={barPath(cx - barW / 2, top + plotH - bh, barW, bh)} style={{ fill: "var(--ink)" }} />}
+                <text x={cx} y={H - 5} textAnchor="middle" className={"axis " + (d.date === week.to ? "ink" : "")}>{DOW[dow(d.date)]}</text>
+                <rect x={band * i} y={0} width={band} height={H} fill="transparent"
+                  onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} />
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      {h && hover !== null && (
+        <Tooltip tip={{ x: Math.min(Math.max(band * hover + band / 2, 80), Math.max(80, width - 80)), y: 40, title: shortDate(h.date),
+          rows: [{ label: h.amount ? "Gastaste" : "Sin gastos", value: h.amount ? clp(h.amount) : "—" }] }} />
+      )}
+    </div>
+  );
+}
+
+type Slice = { id: string; label: string; color: string; amount: number };
+
+/** Dona de distribución (máximo 6 porciones: el resto se agrupa en "Otras"). */
+function Donut({ slices, total }: { slices: Slice[]; total: number }) {
+  const [hover, setHover] = useState<string | null>(null);
+  const S = 168, R = 80, r = 54, C = S / 2;
+  let acc = 0;
+  const arc = (a0: number, a1: number) => {
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    const p = (a: number, rad: number) => `${C + rad * Math.sin(a)},${C - rad * Math.cos(a)}`;
+    return `M${p(a0, R)}A${R},${R} 0 ${large} 1 ${p(a1, R)}L${p(a1, r)}A${r},${r} 0 ${large} 0 ${p(a0, r)}Z`;
+  };
+  const hv = slices.find((s) => s.id === hover);
+  return (
+    <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`} role="img" aria-label="Distribución del gasto por categoría" className="donut"
+      onMouseLeave={() => setHover(null)}>
+      {slices.length === 1 ? (
+        <circle cx={C} cy={C} r={(R + r) / 2} fill="none" strokeWidth={R - r} style={{ stroke: slices[0].color }} />
+      ) : (
+        slices.map((s) => {
+          const a0 = (acc / total) * Math.PI * 2;
+          acc += s.amount;
+          const a1 = (acc / total) * Math.PI * 2;
+          return (
+            <path key={s.id} d={arc(a0, a1)} style={{ fill: s.color, stroke: "var(--surface)" }} strokeWidth={2}
+              opacity={hover === null || hover === s.id ? 1 : 0.4} onMouseEnter={() => setHover(s.id)} onTouchStart={() => setHover(s.id)}>
+              <title>{`${s.label}: ${clp(s.amount)}`}</title>
+            </path>
+          );
+        })
+      )}
+      <text x={C} y={C - 6} textAnchor="middle" className="axis">{hv ? hv.label : "Total"}</text>
+      <text x={C} y={C + 14} textAnchor="middle" className="donut-v">{compact(hv ? hv.amount : total)}</text>
+    </svg>
+  );
+}
+
+function weekText(w: WeekSummary) {
+  const lines = [
+    `Mis Gastos · semana del ${shortDate(w.from)} al ${shortDate(w.to)}`,
+    `Gasté ${clp(w.total)} en ${w.count} ${w.count === 1 ? "gasto" : "gastos"} del día a día.`,
+  ];
+  if (w.prevTotal > 0) {
+    const pct = Math.round(((w.total - w.prevTotal) / w.prevTotal) * 100);
+    lines.push(pct === 0 ? "Igual que la semana anterior." : `${Math.abs(pct)}% ${pct > 0 ? "más" : "menos"} que la semana anterior (${clp(w.prevTotal)}).`);
+  }
+  if (w.topCategory) lines.push(`Donde más gasté: ${w.topCategory.cat.label} (${clp(w.topCategory.amount)}).`);
+  lines.push(`Días sin gastos: ${w.noSpendDays} de 7.`);
+  if (w.upcoming.length) lines.push(`Por pagar esta semana: ${w.upcoming.map((u) => `${u.name} ${clp(u.amount)} (día ${u.day})`).join(", ")}.`);
+  return lines.join("\n");
+}
+
 type Range = "3" | "6" | "year" | "all";
 
-export default function PanelTab({ data, onExport }: { data: AppData; onExport: () => void }) {
+type PanelProps = { data: AppData; onExport: () => void; onReport: () => void; notify: (t: string) => void };
+
+export default function PanelTab({ data, onExport, onReport, notify }: PanelProps) {
   const [table, setTable] = useState(false);
   const [range, setRange] = useState<Range>("6");
   const years = yearsOf(data);
@@ -225,6 +324,34 @@ export default function PanelTab({ data, onExport }: { data: AppData; onExport: 
     : [];
   const topYearCat = yearCats[0];
 
+  // Semana, distribución, límites y etiquetas
+  const week = weekSummary(data);
+  const weekPct = week.prevTotal > 0 ? Math.round(((week.total - week.prevTotal) / week.prevTotal) * 100) : null;
+  const shareWeek = async () => {
+    if (isPrivate()) return notify("Desactiva “Ocultar montos” para compartir el resumen");
+    const text = weekText(week);
+    try {
+      if (navigator.share) await navigator.share({ title: "Resumen semanal", text });
+      else {
+        await navigator.clipboard.writeText(text);
+        notify("Resumen copiado: pégalo en WhatsApp o donde quieras");
+      }
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") notify("No se pudo compartir");
+    }
+  };
+  const byCat: Record<CategoryId, number> = cur.byCategory;
+  const ranked = data.categories
+    .map((c) => ({ id: c.id, label: c.label, color: catColor(c.color), amount: byCat[c.id] || 0 }))
+    .filter((c) => c.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+  const distTotal = ranked.reduce((s, c) => s + c.amount, 0);
+  const slices: Slice[] = ranked.length > 6
+    ? [...ranked.slice(0, 5), { id: "__rest", label: `Otras (${ranked.length - 5})`, color: "var(--dim)", amount: ranked.slice(5).reduce((s, c) => s + c.amount, 0) }]
+    : ranked;
+  const limits = limitStatus(data.categories, byCat);
+  const tags = tagTotals(data, year).slice(0, 8);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
@@ -233,7 +360,10 @@ export default function PanelTab({ data, onExport }: { data: AppData; onExport: 
             <button key={id} className={"chip " + (range === id ? "on" : "")} onClick={() => setRange(id)}>{l}</button>
           ))}
         </div>
-        <button className="btn sm" onClick={onExport}><IDownload size={13} /> Exportar</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn sm primary" onClick={onReport} title={`Descarga el reporte de ${active.label} en PDF`}><IDownload size={13} /> Reporte PDF del mes</button>
+          <button className="btn sm" onClick={onExport}>Exportar…</button>
+        </div>
       </div>
 
       <section className="card">
@@ -251,6 +381,104 @@ export default function PanelTab({ data, onExport }: { data: AppData; onExport: 
           <div className="stat"><span className="l">Gasto promedio</span><span className="v">{compact(months.length ? totals.spent / months.length : 0)}</span></div>
         </div>
       </section>
+
+      <section className="card">
+        <div className="card-h">
+          <div>
+            <h2>Tu semana</h2>
+            <div className="sub">Gastos diarios del {shortDate(week.from)} al {shortDate(week.to)} · tu parte en los compartidos</div>
+          </div>
+          <button className="btn sm" onClick={shareWeek} title="Compartir o copiar el resumen"><ICopy size={13} /> Compartir</button>
+        </div>
+        <div className="week">
+          <div>
+            <div className="num" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-.02em" }}>{clp(week.total)}</div>
+            <p className="muted" style={{ margin: "4px 0 12px", fontSize: 12.5 }}>
+              {weekPct === null ? `${week.count} ${week.count === 1 ? "gasto" : "gastos"} anotados`
+                : weekPct === 0 ? "Igual que la semana anterior"
+                  : <>{weekPct > 0 ? <IArrowUp size={11} /> : <IArrowDown size={11} />} {Math.abs(weekPct)}% {weekPct > 0 ? "más" : "menos"} que la semana anterior</>}
+            </p>
+            <div className="facts tight">
+              <div className="fact"><div className="l">Donde más gastaste</div><b>{week.topCategory?.cat.label || "—"}</b>
+                <small className="num">{week.topCategory ? clp(week.topCategory.amount) : ""}</small></div>
+              <div className="fact"><div className="l">Días sin gastos</div><b className="num">{week.noSpendDays} de 7</b>
+                <small>{week.noSpendDays >= 2 ? "¡Bien!" : ""}</small></div>
+              <div className="fact"><div className="l">Gasto más grande</div><b>{week.biggest?.name || "—"}</b>
+                <small className="num">{week.biggest ? clp(week.biggest.amount) : ""}</small></div>
+            </div>
+          </div>
+          <WeekBars week={week} />
+        </div>
+        {week.upcoming.length > 0 && (
+          <div className="alert warn" style={{ margin: "14px 0 0" }}>
+            <ICalendar size={16} />
+            <span>Por pagar esta semana: {week.upcoming.map((u, i) => <span key={i}>{i > 0 && " · "}<b>{u.name}</b> {clp(u.amount)} (día {u.day})</span>)}</span>
+          </div>
+        )}
+      </section>
+
+      <div className="grid2" style={{ marginBottom: 16 }}>
+        <section className="card">
+          <div className="card-h">
+            <div>
+              <h2>En qué se va la plata</h2>
+              <div className="sub">{active.label} · cuentas + diarios de tu bolsillo</div>
+            </div>
+          </div>
+          {distTotal === 0 ? (
+            <div className="empty">Sin gastos este mes.</div>
+          ) : (
+            <div className="dist2">
+              <Donut slices={slices} total={distTotal} />
+              <div className="dist2-l">
+                {slices.map((s) => {
+                  const p = prev && s.id !== "__rest" ? prev.byCategory[s.id] || 0 : null;
+                  return (
+                    <div key={s.id} className="dl">
+                      <i className="dot" style={{ background: s.color }} />
+                      <span className="n">{s.label}</span>
+                      <span className="v num">{clp(s.amount)}</span>
+                      <span className="p num">{Math.round((s.amount / distTotal) * 100)}%</span>
+                      {p !== null && p > 0 && s.amount !== p && (
+                        <span className={"chg " + (s.amount > p ? "up" : "down")} title={`${prev!.label}: ${clp(p)}`}>
+                          {s.amount > p ? <IArrowUp size={10} /> : <IArrowDown size={10} />}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="card">
+          <div className="card-h">
+            <div>
+              <h2>Límites por categoría</h2>
+              <div className="sub">{active.label}</div>
+            </div>
+          </div>
+          {limits.length === 0 ? (
+            <div className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+              Define cuánto quieres gastar como máximo al mes en cada categoría en <b>Ajustes → Categorías y límites</b>. Aquí verás cuánto llevas y te avisaremos al acercarte.
+            </div>
+          ) : (
+            limits.map((l) => (
+              <div key={l.cat.id} className="limit">
+                <div className="limit-h">
+                  <span className="n"><i className="dot" style={{ background: catColor(l.cat.color) }} /> {l.cat.label}</span>
+                  <span className={"s " + l.tone}>
+                    {l.tone === "over" ? <><IAlert size={11} /> Te pasaste {clp(l.spent - l.limit)}</> : l.tone === "warn" ? <><IAlert size={11} /> {l.pct}%</> : <><ICheck size={11} /> {l.pct}%</>}
+                  </span>
+                </div>
+                <div className="bar"><i className={l.tone === "over" ? "bad" : l.tone === "warn" ? "warn" : ""} style={{ width: Math.min(100, l.pct) + "%" }} /></div>
+                <div className="bar-l"><span>{clp(l.spent)} de {clp(l.limit)}</span><span>{l.spent < l.limit ? `Quedan ${clp(l.limit - l.spent)}` : ""}</span></div>
+              </div>
+            ))
+          )}
+        </section>
+      </div>
 
       <section className="card">
         <div className="card-h">
@@ -358,6 +586,18 @@ export default function PanelTab({ data, onExport }: { data: AppData; onExport: 
         </div>
         {top.length ? <Bars items={top} label="Cuentas más grandes del mes" /> : <div className="empty">Sin cuentas este mes.</div>}
       </section>
+
+      {tags.length > 0 && (
+        <section className="card">
+          <div className="card-h">
+            <div>
+              <h2>Por etiqueta</h2>
+              <div className="sub">{year} · cuentas + diarios de tu bolsillo con esa etiqueta</div>
+            </div>
+          </div>
+          <Bars items={tags.map((t) => ({ id: t.tag, name: "#" + t.tag, amount: t.amount, color: "var(--ink)" }))} label={`Gasto por etiqueta en ${year}`} />
+        </section>
+      )}
 
       {/* Resumen anual */}
       {ys && (

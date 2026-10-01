@@ -1,7 +1,7 @@
 // Exportación a Excel (.xlsx) y PDF. Todo ocurre en el navegador; las librerías
 // pesadas se cargan solo al exportar.
 import type { AppData, Month } from "./types";
-import { catOf, currentPeriod, periodName, summarizeMonth } from "./data";
+import { balances, catOf, currentPeriod, dailyParts, limitStatus, periodName, summarizeMonth } from "./data";
 
 export type ExportScope = "month" | "year" | "all";
 export type ExportFormat = "xlsx" | "pdf";
@@ -33,6 +33,11 @@ function build(data: AppData, scope: ExportScope) {
   );
   return { months, summaries, daily, catTotals, totals, label, slug };
 }
+
+const personName = (data: AppData, id: string) => data.people.find((p) => p.id === id)?.name || "";
+const paidByLabel = (data: AppData, id: string) => (id ? personName(data, id) || "Otra persona" : "Yo");
+const splitLabel = (data: AppData, ids: string[]) => ids.map((id) => personName(data, id)).filter(Boolean).join(", ");
+const tagsLabel = (tags: string[]) => tags.map((t) => "#" + t).join(" ");
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -68,19 +73,22 @@ async function toXlsx(data: AppData, m: Model): Promise<Blob> {
   ];
 
   const cuentas = [
-    [head("Mes"), head("Cuenta"), head("Categoría"), head("Monto"), head("Pagado"), head("Vence (día)"), head("Cuota")],
+    [head("Mes"), head("Cuenta"), head("Categoría"), head("Monto"), head("Pagado"), head("Vence (día)"), head("Cuota"), head("Etiquetas")],
     ...m.months.flatMap((mo) =>
       mo.items.map((i) => [
         text(mo.label || "Sin nombre"), text(i.name), text(catOf(data.categories, i.category).label), money(i.amount),
         text(i.paid ? "Sí" : "No"), i.dueDay ? { value: i.dueDay, type: Number } : text(""),
-        text(i.installment ? `${i.installment.current}/${i.installment.total}` : ""),
+        text(i.installment ? `${i.installment.current}/${i.installment.total}` : ""), text(tagsLabel(i.tags)),
       ])
     ),
   ];
 
   const diarios = [
-    [head("Fecha"), head("Descripción"), head("Categoría"), head("Monto"), head("Pagado con tarjeta")],
-    ...m.daily.map((d) => [text(d.date), text(d.name), text(catOf(data.categories, d.category).label), money(d.amount), money(d.cardAmount || 0)]),
+    [head("Fecha"), head("Descripción"), head("Categoría"), head("Monto"), head("Tu parte"), head("Pagado con tarjeta"), head("Pagó"), head("Compartido con"), head("Etiquetas")],
+    ...m.daily.map((d) => [
+      text(d.date), text(d.name), text(catOf(data.categories, d.category).label), money(d.amount), money(dailyParts(d).mine), money(d.cardAmount || 0),
+      text(paidByLabel(data, d.paidBy)), text(splitLabel(data, d.split)), text(tagsLabel(d.tags)),
+    ]),
   ];
 
   const porCategoria = [
@@ -90,8 +98,8 @@ async function toXlsx(data: AppData, m: Model): Promise<Blob> {
 
   const sheets = [
     { data: resumen, sheet: "Resumen", columns: [{ width: 22 }, { width: 14 }, { width: 14 }, { width: 16 }, { width: 20 }, { width: 16 }, { width: 14 }] },
-    { data: cuentas, sheet: "Cuentas", columns: [{ width: 20 }, { width: 28 }, { width: 16 }, { width: 14 }, { width: 10 }, { width: 12 }, { width: 10 }] },
-    { data: diarios, sheet: "Diarios", columns: [{ width: 13 }, { width: 32 }, { width: 16 }, { width: 14 }, { width: 20 }] },
+    { data: cuentas, sheet: "Cuentas", columns: [{ width: 20 }, { width: 28 }, { width: 16 }, { width: 14 }, { width: 10 }, { width: 12 }, { width: 10 }, { width: 24 }] },
+    { data: diarios, sheet: "Diarios", columns: [{ width: 13 }, { width: 32 }, { width: 16 }, { width: 14 }, { width: 14 }, { width: 20 }, { width: 14 }, { width: 20 }, { width: 24 }] },
     { data: porCategoria, sheet: "Por categoría", columns: [{ width: 20 }, ...m.summaries.map(() => ({ width: 14 })), { width: 14 }] },
   ];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -119,6 +127,29 @@ async function toPdf(data: AppData, m: Model): Promise<Blob> {
   doc.setTextColor(20);
   y += 42;
 
+  // Resumen en cifras
+  const kpis: [string, string][] = [
+    ["Ingresos", pdfMoney(m.totals.income)],
+    ["Gastos", pdfMoney(m.totals.spent)],
+    [m.totals.balance < 0 ? "Déficit" : "Ahorro", pdfMoney(Math.abs(m.totals.balance))],
+    ["Tasa de ahorro", m.totals.income > 0 ? Math.round((m.totals.balance / m.totals.income) * 100) + "%" : "-"],
+  ];
+  const boxW = (doc.internal.pageSize.getWidth() - left * 2 - 24) / 4;
+  kpis.forEach(([l, v], i) => {
+    const x = left + i * (boxW + 8);
+    doc.setDrawColor(220);
+    doc.roundedRect(x, y, boxW, 48, 4, 4);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(110);
+    doc.text(pdfText(l), x + 10, y + 17);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(20);
+    doc.text(pdfText(v), x + 10, y + 36);
+  });
+  y += 76;
+
   const table = (title: string, head: string[], body: string[][], foot?: string[]) => {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
@@ -132,7 +163,7 @@ async function toPdf(data: AppData, m: Model): Promise<Blob> {
       styles: { fontSize: 9, cellPadding: 5, textColor: 30 },
       headStyles: { fillColor: [24, 24, 27], textColor: 255 },
       footStyles: { fillColor: [240, 240, 243], textColor: 20, fontStyle: "bold" },
-      columnStyles: Object.fromEntries(head.map((_, i) => [i, { halign: i === 0 || head[i] === "Categoría" || head[i] === "Cuenta" || head[i] === "Descripción" ? "left" : "right" }])),
+      columnStyles: Object.fromEntries(head.map((_, i) => [i, { halign: i === 0 || head[i] === "Categoría" || head[i] === "Cuenta" || head[i] === "Descripción" || head[i] === "Estado" ? "left" : "right" }])),
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     y = (doc as any).lastAutoTable.finalY + 26;
@@ -157,6 +188,15 @@ async function toPdf(data: AppData, m: Model): Promise<Blob> {
 
   if (m.months.length === 1) {
     const mo = m.months[0];
+    const limits = limitStatus(data.categories, m.summaries[0].byCategory);
+    if (limits.length)
+      table("Límites por categoría", ["Categoría", "Gastado", "Límite", "Uso", "Estado"],
+        limits.map((l) => [l.cat.label, pdfMoney(l.spent), pdfMoney(l.limit), l.pct + "%",
+          l.tone === "over" ? `Excedido por ${pdfMoney(l.spent - l.limit)}` : l.tone === "warn" ? "Cerca del límite" : "Dentro del límite"]));
+    const top = [...m.daily].sort((a, b) => dailyParts(b).mine - dailyParts(a).mine).slice(0, 5);
+    if (top.length > 1)
+      table("Gastos diarios más grandes", ["Fecha", "Descripción", "Categoría", "Tu parte"],
+        top.map((d) => [d.date, d.name, catOf(data.categories, d.category).label, pdfMoney(dailyParts(d).mine)]));
     if (mo.items.length)
       table("Cuentas del mes", ["Cuenta", "Categoría", "Vence", "Pagado", "Monto"],
         mo.items.map((i) => [
@@ -164,12 +204,23 @@ async function toPdf(data: AppData, m: Model): Promise<Blob> {
           catOf(data.categories, i.category).label, i.dueDay ? `día ${i.dueDay}` : "-", i.paid ? "Sí" : "No", pdfMoney(i.amount),
         ]));
     if (m.daily.length)
-      table("Gastos diarios", ["Fecha", "Descripción", "Categoría", "Monto", "Con tarjeta"],
-        m.daily.map((d) => [d.date, d.name, catOf(data.categories, d.category).label, pdfMoney(d.amount), d.cardAmount ? pdfMoney(d.cardAmount) : "-"]));
+      table("Gastos diarios", ["Fecha", "Descripción", "Categoría", "Monto", "Tu parte", "Con tarjeta"],
+        m.daily.map((d) => [
+          d.date, d.name + (d.tags.length ? `  ${tagsLabel(d.tags)}` : "") + (d.split.length ? ` (compartido, pagó ${paidByLabel(data, d.paidBy)})` : ""),
+          catOf(data.categories, d.category).label, pdfMoney(d.amount), pdfMoney(dailyParts(d).mine), d.cardAmount ? pdfMoney(d.cardAmount) : "-",
+        ]));
   } else {
     doc.setFontSize(9);
     doc.setTextColor(110);
     doc.text("El detalle de cuentas y gastos diarios de cada mes está en la exportación a Excel.", left, y);
+  }
+
+  const owed = balances(data).filter((b) => b.count > 0 || b.balance !== 0);
+  if (owed.length) {
+    y += 14;
+    table("Gastos compartidos (saldo a hoy)", ["Persona", "Te debe", "Le debes", "Pagos registrados", "Saldo"],
+      owed.map((b) => [b.person.name, pdfMoney(b.owedToMe), pdfMoney(b.iOwe), pdfMoney(b.settled),
+        b.balance === 0 ? "A mano" : b.balance > 0 ? `Te debe ${pdfMoney(b.balance)}` : `Le debes ${pdfMoney(-b.balance)}`]));
   }
 
   const pages = doc.getNumberOfPages();
