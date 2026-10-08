@@ -10,6 +10,7 @@ import type { AisleId, AppData, MarketItem } from "@/lib/types";
 import AddMany from "./AddMany";
 import BenefitCards from "./BenefitCards";
 import CurrencyInput from "./CurrencyInput";
+import Modal from "./Modal";
 import {
   IAlert, IArrowDown, IArrowRight, IArrowUp, IBookmark, ICheck, IExpand, IMore, IPlus, IStore, ITrash, IUsers, IX,
 } from "./icons";
@@ -26,6 +27,7 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
   const [view, setView] = useState<View>("lista");
   const [open, setOpen] = useState<string | null>(null);
   const [storeMode, setStoreMode] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     try {
@@ -164,9 +166,13 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
       : `Agregado a Gastos de ${month.label}`);
   };
 
-  const clearDone = () => {
-    if (confirm("¿Quitar los productos ya comprados de la lista?"))
-      update((d) => { d.market.items = d.market.items.filter((i) => !i.done); });
+  // Solo saca productos de la lista: los precios, el historial y lo que compras seguido se mantienen.
+  const clearList = (all: boolean) => {
+    const n = all ? items.length : cart.length;
+    update((d) => { d.market.items = all ? [] : d.market.items.filter((i) => !i.done); });
+    setClearing(false);
+    setOpen(null);
+    notify(all ? `Lista vaciada (${n} ${n === 1 ? "producto" : "productos"})` : `Quitaste ${n} ${n === 1 ? "producto comprado" : "productos comprados"}`);
   };
 
   const renderItem = (it: MarketItem) => {
@@ -283,6 +289,11 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
             <button className="btn" onClick={() => setStoreMode(true)} title="Pantalla grande para comprar en la tienda">
               <IExpand size={14} /> Modo tienda
             </button>
+            {items.length > 0 && (
+              <button className="btn" onClick={() => setClearing(true)} title="Quitar productos de la lista">
+                <ITrash size={14} /> Limpiar
+              </button>
+            )}
             <button className="btn" onClick={registerPurchase} disabled={!split.total}
               title="Registra la compra en tus gastos del mes activo">
               <IArrowRight size={14} /> {usingCards ? "Registrar compra" : `Pasar ${cart.length ? "carro" : "total"} a Gastos`}
@@ -494,8 +505,30 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
 
       <div className="foot-note">
         <span>Al marcar un producto como comprado se guarda su precio{store ? ` en ${store}` : ""} y aprendo lo que compras seguido.</span>
-        {cart.length > 0 && <button className="btn ghost sm" onClick={clearDone}><ITrash size={13} /> Quitar comprados</button>}
+        {cart.length > 0 && <button className="btn ghost sm" onClick={() => setClearing(true)}><ITrash size={13} /> Quitar comprados</button>}
       </div>
+
+      {clearing && (
+        <Modal onClose={() => setClearing(false)} label="Limpiar lista">
+          <h2>Limpiar lista</h2>
+          <p className="lead">
+            Tienes {items.length} {items.length === 1 ? "producto" : "productos"}, {cart.length} ya en el carro.
+            Los precios guardados y lo que compras seguido no se borran.
+            {shared.link ? " La lista es compartida: también se limpiará para las demás personas." : ""}
+          </p>
+          <div className="clear-opts">
+            <button className="btn" disabled={!cart.length} onClick={() => clearList(false)}>
+              <ICheck size={14} /> Quitar los comprados ({cart.length})
+            </button>
+            <button className="btn danger" onClick={() => clearList(true)}>
+              <ITrash size={14} /> Vaciar toda la lista ({items.length})
+            </button>
+          </div>
+          <div className="actions">
+            <button className="btn" onClick={() => setClearing(false)}>Cancelar</button>
+          </div>
+        </Modal>
+      )}
 
       {storeMode && (
         <StoreMode data={data} update={update} notify={notify} shared={shared}
