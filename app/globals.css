@@ -480,3 +480,5 @@ table.t td.neg{color:var(--bad);}
   .limit-f{width:96px;}
   .splitpick .lbl{min-width:0;}
 }
+.clear-opts{display:flex;flex-direction:column;gap:8px;margin-top:4px;}
+.clear-opts .btn{justify-content:flex-start;height:40px;}
