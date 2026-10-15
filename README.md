@@ -38,6 +38,7 @@ app/
     data/route.ts          GET/PUT  datos del usuario o de quien te los compartió (?owner=), con control de versiones (409)
     resumen/route.ts       GET      totales por mes, supermercado y próximas compras
     health/route.ts        GET      estado del servicio
+    keepalive/route.ts     GET      consulta diaria para que Supabase no pause el proyecto (Vercel Cron)
 components/                → pantallas (Panel, Cuentas, Gastos diarios, Supermercado, Próximas compras, Ajustes)
 lib/
   data.ts                  → datos de ejemplo, normalización y cálculos (compartido front/back)
@@ -48,6 +49,8 @@ lib/
   api.ts                   → cliente del backend (agrega el token de sesión)
   supabase/                → cliente del navegador y validación de sesión en el servidor
 supabase/
+  setup.sql                → TODO junto: ejecútalo una vez en una base nueva
+  user_data.sql            → tabla principal y su seguridad (RLS)
   shared_lists.sql         → tablas, seguridad (RLS) y funciones de la lista compartida
   data_sharing.sql         → roles lector/editor para compartir tus finanzas
 ```
@@ -63,6 +66,16 @@ cp .env.example .env.local
 npm run dev                  # http://localhost:3000
 ```
 
+## Crear la base de datos (Supabase)
+
+1. En Vercel, en el proyecto: **Storage → Create Database → Supabase** (o conecta uno existente) y conéctalo a
+   *Production* y *Preview*. Eso define solas `NEXT_PUBLIC_SUPABASE_URL` y la clave pública.
+2. En el panel de Supabase de ese proyecto: **SQL Editor**, pega todo [`supabase/setup.sql`](supabase/setup.sql) y
+   presiona **Run**. Crea la tabla `user_data`, su seguridad, la lista compartida y los roles.
+3. En Vercel: **Deployments → … → Redeploy** para que la app tome las variables nuevas.
+
+Una vez al día Vercel llama a `/api/keepalive` (ver `vercel.json`) para que el proyecto gratis no se pause por inactividad.
+
 ## Configurar el registro y la recuperación de contraseña (Supabase)
 
 En el panel de Supabase, *Authentication*:
@@ -76,7 +89,7 @@ En el panel de Supabase, *Authentication*:
 
 La lista compartida usa tres tablas nuevas. Solo hay que hacerlo una vez:
 
-1. En Supabase abre **SQL Editor**, pega el contenido de [`supabase/shared_lists.sql`](supabase/shared_lists.sql) y presiona **Run**.
+1. Ya viene en `supabase/setup.sql`. Si tu base es anterior, en Supabase abre **SQL Editor**, pega el contenido de [`supabase/shared_lists.sql`](supabase/shared_lists.sql) y presiona **Run**.
 2. Listo: en *Súper → Lista compartida* una persona crea la lista y comparte el código; la otra se une con él.
 
 Cómo funciona: cada producto es una fila, así que dos personas pueden editar a la vez sin pisarse (en un choque gana
@@ -86,7 +99,7 @@ Si el SQL no se ha ejecutado, la app lo avisa en pantalla.
 
 ## Activar "Compartir mis finanzas" (Supabase)
 
-1. En Supabase abre **SQL Editor**, pega el contenido de [`supabase/data_sharing.sql`](supabase/data_sharing.sql) y presiona **Run**.
+1. Ya viene en `supabase/setup.sql`. Si tu base es anterior, en Supabase abre **SQL Editor**, pega el contenido de [`supabase/data_sharing.sql`](supabase/data_sharing.sql) y presiona **Run**.
 2. En *Ajustes → Compartir mis finanzas* eliges el permiso, creas un código y se lo pasas a la otra persona; ella lo
    escribe en *Unirme con un código* (con su propia cuenta).
 
@@ -98,7 +111,8 @@ Cada guardado envía la versión que tenías: si otra persona u otro dispositivo
 ## Despliegue en Vercel
 
 1. En el proyecto de Vercel, *Settings → General → Framework Preset*: **Next.js**.
-2. *Settings → Environment Variables* (opcional): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+2. Conecta Supabase desde *Storage* (ver "Crear la base de datos"), o define a mano en *Settings → Environment Variables*:
+   `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 3. Vuelve a desplegar.
 
 ## Ideas para seguir expandiendo el backend
