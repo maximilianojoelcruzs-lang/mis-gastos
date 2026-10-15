@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { allTags, buildNextMonth, catColor, catOf, dueStatus, learnCategory, seedData, summarizeMonth } from "@/lib/data";
+import { allTags, buildNextMonth, catColor, catOf, dueStatus, learnCategory, seedData, summarizeMonth, syncSuperLine } from "@/lib/data";
 import { clp, uid } from "@/lib/format";
 import type { AppData, CategoryId, Expense, Income, Month } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
@@ -52,6 +52,7 @@ export default function GastosTab({ data, setData, update, canReset }: Props) {
         fixed: false, dueDay: null,
         installment: installments ? { current: 1, total: 3 } : null,
         tags: [],
+        auto: "",
       });
     });
     setOpen(installments ? id : null);
@@ -63,6 +64,7 @@ export default function GastosTab({ data, setData, update, canReset }: Props) {
       const next = buildNextMonth(base);
       d.months.push(next);
       d.activeId = next.id;
+      syncSuperLine(d, next.period);
     });
 
   const deleteMonth = () => {
@@ -246,7 +248,7 @@ export default function GastosTab({ data, setData, update, canReset }: Props) {
                       onBlur={(e) => onItem(it.id, (x) => {
                         if (x.category === "otros" && e.target.value) x.category = learnCategory(data, e.target.value).id;
                       })} />
-                    {(it.installment || it.fixed || st || it.tags.length > 0) && (
+                    {(it.installment || it.fixed || st || it.tags.length > 0 || it.auto) && (
                       <div className="tags">
                         {st && (
                           <span className={"badge " + (st.tone === "late" ? "bad" : st.tone === "soon" ? "warn" : "")}>
@@ -257,12 +259,17 @@ export default function GastosTab({ data, setData, update, canReset }: Props) {
                           <span className="badge"><ILayers size={11} /> Cuota {it.installment.current}/{it.installment.total}</span>
                         )}
                         {it.fixed && !it.installment && <span className="badge"><IRepeat size={11} /> Fijo</span>}
+                        {it.auto === "super" && <span className="badge" title="Se calcula desde Súper: tu extra de bolsillo o lo que gastaste, lo que sea mayor">Automático · Súper</span>}
                         {it.tags.map((t) => <span key={t} className="badge">#{t}</span>)}
                       </div>
                     )}
                   </div>
-                  <CurrencyInput className="bare amount" value={it.amount} placeholder="$0"
-                    onChange={(v) => onItem(it.id, (x) => { x.amount = v; })} />
+                  {it.auto === "super" ? (
+                    <span className="bare amount num auto-amt" title="Se cambia desde Súper → Editar plan">{clp(it.amount)}</span>
+                  ) : (
+                    <CurrencyInput className="bare amount" value={it.amount} placeholder="$0"
+                      onChange={(v) => onItem(it.id, (x) => { x.amount = v; })} />
+                  )}
                   <button className={"btn icon sm " + (isOpen ? "" : "ghost")} title="Opciones"
                     onClick={() => setOpen(isOpen ? null : it.id)}>
                     <IMore size={15} />

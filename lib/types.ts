@@ -28,6 +28,8 @@ export type Expense = {
   /** Compra en cuotas: cuota actual y total. */
   installment: Installment | null;
   tags: string[];
+  /** "super" = línea automática con lo que pones de tu bolsillo en el súper (se calcula sola). */
+  auto: "" | "super";
 };
 
 export type Income = { id: string; name: string; amount: number };
@@ -92,6 +94,10 @@ export type BenefitCard = {
   color: PaletteKey;
   /** ¿Se usa en la compra actual? */
   use: boolean;
+  /** Carga mensual de la tarjeta (lo que te depositan cada mes; 0 = no definida). */
+  monthly: number;
+  /** Último mes "YYYY-MM" en que se sumó la carga al saldo. */
+  loaded: string;
 };
 
 /** Compra registrada en el súper (para el presupuesto mensual). */
@@ -104,6 +110,8 @@ export type Purchase = {
   pocket: number;
   store: string;
   count: number;
+  /** Cuánto pagó cada tarjeta (id → monto). */
+  byCard: Record<string, number>;
 };
 
 /** Producto que compras seguido: días distintos en que lo compraste. */
@@ -128,8 +136,8 @@ export type Market = {
   store: string;
   /** Tarjetas de alimentación para repartir la compra entre la tarjeta y tu bolsillo. */
   cards: BenefitCard[];
-  /** Presupuesto mensual del súper (tarjeta + bolsillo); 0 = sin presupuesto. */
-  budget: number;
+  /** Extra mensual de tu bolsillo para el súper (sale de tus Cuentas); el presupuesto es tarjetas + extra. */
+  extra: number;
   purchases: Purchase[];
   frequent: Record<string, FrequentProduct>;
   /** Lista compartida activa (null = lista personal). */

@@ -1,18 +1,18 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  AISLES, addProducts, aisleLabel, currentPeriod, frequentProducts, guessAisle, latestByStore, logPurchase, markBought,
-  periodName, previousPrice, priceKey, recordPrice, splitPayment, storeComparison, superSpent, todayISO, toggleItem,
+  AISLES, SUPER_LINE, addProducts, aisleLabel, currentPeriod, frequentProducts, guessAisle, latestByStore, logPurchase, markBought,
+  previousPrice, priceKey, recordPrice, splitPayment, storeComparison, syncSuperLine, todayISO, toggleItem,
 } from "@/lib/data";
 import { clp, dayLabel, uid } from "@/lib/format";
 import type { SharedList } from "@/lib/useSharedList";
 import type { AisleId, AppData, MarketItem } from "@/lib/types";
 import AddMany from "./AddMany";
-import BenefitCards from "./BenefitCards";
+import SuperBudget from "./SuperBudget";
 import CurrencyInput from "./CurrencyInput";
 import Modal from "./Modal";
 import {
-  IAlert, IArrowDown, IArrowRight, IArrowUp, IBookmark, ICheck, IExpand, IMore, IPlus, IStore, ITrash, IUsers, IX,
+  IArrowDown, IArrowRight, IArrowUp, IBookmark, ICheck, IExpand, IMore, IPlus, IStore, ITrash, IUsers, IX,
 } from "./icons";
 import SharedListCard from "./SharedListCard";
 import StoreMode from "./StoreMode";
@@ -23,7 +23,7 @@ type View = "lista" | "pasillos";
 
 export default function MarketTab({ data, update, notify, shared }: Props) {
   const { market } = data;
-  const { items, templates, stores, store, cards, budget, purchases } = market;
+  const { items, templates, stores, store, cards } = market;
   const [view, setView] = useState<View>("lista");
   const [open, setOpen] = useState<string | null>(null);
   const [storeMode, setStoreMode] = useState(false);
@@ -45,7 +45,6 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0);
   const pendingTotal = items.filter((i) => !i.done).reduce((s, i) => s + lineTotal(i), 0);
   const donePct = items.length > 0 ? (cart.length / items.length) * 100 : 0;
-  const month = data.months.find((m) => m.id === data.activeId) || data.months[0];
   const today = todayISO();
 
   // La compra a repartir es el carro; si aún no hay nada marcado, toda la lista.
@@ -55,11 +54,7 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
   const scope = cart.length ? `el carro (${cart.length} ${cart.length === 1 ? "producto" : "productos"})` : "toda la lista";
   const comparison = storeComparison(market);
 
-  // Presupuesto del mes
   const period = currentPeriod();
-  const spentSuper = superSpent(market, period);
-  const projected = spentSuper + pendingTotal;
-  const monthPurchases = purchases.filter((p) => p.date.startsWith(period)).reverse();
 
   // Lo que sueles comprar (y que aún no está en la lista)
   const inList = new Set(items.filter((i) => !i.done).map((i) => priceKey(i.name)));
@@ -135,14 +130,13 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
   // y la anota en el presupuesto del súper.
   const registerPurchase = () => {
     if (!base.length || !split.total) return;
-    const [, m, d] = todayISO().split("-");
     const pocket = usingCards ? split.pocket : split.total;
     const used = split.perCard.filter((p) => p.used > 0);
-    const message = usingCards
-      ? `Compra de ${clp(split.total)}: ${used.map((p) => `${p.card.name} ${clp(p.used)}`).join(" + ") || "sin usar tarjetas"}` +
-        `${pocket > 0 ? ` y ${clp(pocket)} de tu bolsillo` : ""}.\n\nSe descontará de los saldos de tus tarjetas` +
-        `${pocket > 0 ? ` y se agregarán ${clp(pocket)} a los gastos de ${month.label}` : ""}. ¿Continuar?`
-      : `¿Agregar ${clp(pocket)} como gasto "Supermercado ${d}/${m}" en ${month.label}?`;
+    const message = `Compra de ${clp(split.total)}: ` +
+      [...used.map((p) => `${p.card.name} ${clp(p.used)}`), ...(pocket > 0 ? [`${clp(pocket)} de tu bolsillo`] : [])].join(" + ") +
+      (used.length ? ".\n\nSe descontará del saldo de tus tarjetas" : ".\n\nSe registrará en tu presupuesto del súper") +
+      (pocket > 0 ? ` y lo de tu bolsillo se suma a "${SUPER_LINE}" en Cuentas` : "") +
+      `. Los productos comprados salen de la lista. ¿Continuar?`;
     if (!confirm(message)) return;
     const ids = new Set(base.map((i) => i.id));
     update((draft) => {
@@ -150,20 +144,19 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
         const card = draft.market.cards.find((c) => c.id === p.card.id);
         if (card) card.balance = Math.max(0, card.balance - p.used);
       }
-      if (pocket > 0) {
-        const target = draft.months.find((x) => x.id === draft.activeId) || draft.months[0];
-        target.items.push({
-          id: uid(), name: `Supermercado ${d}/${m}${draft.market.store ? ` · ${draft.market.store}` : ""}`, amount: pocket, paid: true,
-          category: draft.categories.some((c) => c.id === "comida") ? "comida" : "otros", fixed: false, dueDay: null, installment: null, tags: ["súper"],
-        });
-      }
-      logPurchase(draft.market, { total: split.total, card: usingCards ? split.covered : 0, pocket, store: draft.market.store, count: base.length });
-      // Lo comprado queda marcado, para no contarlo dos veces en el presupuesto.
+      logPurchase(draft.market, {
+        total: split.total, card: usingCards ? split.covered : 0, pocket, store: draft.market.store, count: base.length,
+        byCard: Object.fromEntries(used.map((p) => [p.card.id, p.used])),
+      });
+      // Lo de tu bolsillo queda en una sola línea del mes en Cuentas (no una por compra).
+      syncSuperLine(draft, period);
+      // Guarda precios y frecuentes de lo comprado y lo saca de la lista, para no registrarlo dos veces.
       for (const it of draft.market.items) if (ids.has(it.id) && !it.done) markBought(draft.market, it);
+      draft.market.items = draft.market.items.filter((it) => !ids.has(it.id));
     });
-    notify(usingCards
-      ? pocket > 0 ? `Registrado: ${clp(pocket)} a Gastos, el resto con tarjeta` : "Registrado: pagado con tu tarjeta"
-      : `Agregado a Gastos de ${month.label}`);
+    notify(used.length
+      ? pocket > 0 ? `Compra registrada: ${clp(pocket)} de tu bolsillo, el resto con tarjeta` : "Compra registrada: pagada con tu tarjeta"
+      : `Compra registrada: ${clp(pocket)} de tu bolsillo`);
   };
 
   // Solo saca productos de la lista: los precios, el historial y lo que compras seguido se mantienen.
@@ -271,6 +264,8 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
 
   return (
     <div>
+      <SuperBudget data={data} update={update} notify={notify} split={split} scope={scope} pendingTotal={pendingTotal} />
+
       <section className="card">
         <div className="hero" style={{ marginBottom: 14 }}>
           <div>
@@ -296,7 +291,7 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
             )}
             <button className="btn" onClick={registerPurchase} disabled={!split.total}
               title="Registra la compra en tus gastos del mes activo">
-              <IArrowRight size={14} /> {usingCards ? "Registrar compra" : `Pasar ${cart.length ? "carro" : "total"} a Gastos`}
+              <IArrowRight size={14} /> Registrar compra
             </button>
           </div>
         </div>
@@ -383,59 +378,6 @@ export default function MarketTab({ data, update, notify, shared }: Props) {
         </div>
       </section>
 
-      {/* Presupuesto mensual del súper */}
-      <section className="card">
-        <div className="card-h">
-          <div>
-            <h2>Presupuesto del súper</h2>
-            <div className="sub">{periodName(period)} · suma lo que pagan tus tarjetas y lo que pones tú</div>
-          </div>
-        </div>
-        <div className="budget-row">
-          <span className="muted grow">Presupuesto mensual</span>
-          <CurrencyInput className="field sm amount" value={budget} placeholder="$0"
-            onChange={(v) => update((d) => { d.market.budget = v; })} />
-        </div>
-        {budget > 0 ? (
-          <>
-            <div className="bar lg stack" role="img"
-              aria-label={`Llevas ${clp(spentSuper)} de ${clp(budget)}; con lo que falta comprar llegarías a ${clp(projected)}`}>
-              <i className="plan" style={{ width: Math.min(100, (projected / budget) * 100) + "%" }} />
-              <i className={"now " + (spentSuper > budget ? "bad" : "")} style={{ width: Math.min(100, (spentSuper / budget) * 100) + "%" }} />
-            </div>
-            <div className="bar-l">
-              <span>Gastado <b className="num" style={{ color: "var(--ink)" }}>{clp(spentSuper)}</b> ({Math.round((spentSuper / budget) * 100)}%)</span>
-              <span>Con lo que falta: <b className="num" style={{ color: "var(--ink)" }}>{clp(projected)}</b></span>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              {projected > budget ? (
-                <span className="badge bad"><IAlert size={11} /> Te pasarías por {clp(projected - budget)}</span>
-              ) : (
-                <span className="badge good"><ICheck size={11} /> Te quedarían {clp(budget - projected)} del presupuesto</span>
-              )}
-            </div>
-          </>
-        ) : (
-          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Define cuánto quieres gastar al mes en el súper y te aviso si te pasas.</p>
-        )}
-        {monthPurchases.length > 0 && (
-          <div className="mini-list">
-            <div className="muted" style={{ fontSize: 12, marginBottom: 2 }}>Compras registradas este mes</div>
-            {monthPurchases.slice(0, 4).map((p) => (
-              <div className="r" key={p.id}>
-                <span className="n">{dayLabel(p.date, today)}{p.store ? ` · ${p.store}` : ""} · {p.count} {p.count === 1 ? "producto" : "productos"}</span>
-                <b>{clp(p.total)}</b>
-                <button className="btn ghost icon sm danger" title="Quitar del presupuesto (no devuelve saldo a las tarjetas)"
-                  onClick={() => update((d) => { d.market.purchases = d.market.purchases.filter((x) => x.id !== p.id); })}>
-                  <IX size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <BenefitCards market={market} update={update} split={split} scope={scope} />
 
       {items.length > 0 && (
         <section className="card">
