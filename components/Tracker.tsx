@@ -300,7 +300,7 @@ export default function Tracker({ session }: { session: Session }) {
     { id: "market", label: "Supermercado", short: "Súper", icon: ICart, count: data.market.items.filter((i) => !i.done).length,
       title: "Supermercado", desc: "Tu lista, presupuesto, tarjetas de alimentación, lista compartida y modo tienda." },
     { id: "wish", label: "Próximas compras", short: "Compras", icon: IGift, count: data.wishlist.items.filter((i) => !i.done).length,
-      title: "Próximas compras", desc: "Lo que quieres comprar o regalar, con prioridad, fecha y ahorro." },
+      title: "Próximas compras", desc: "Lo que quieres comprarte y los regalos que tienes en mente para cada persona." },
   ];
   const current = tab === "settings"
     ? { title: "Ajustes", desc: "Apariencia, privacidad, categorías, supermercados, exportación y cuenta." }
@@ -403,7 +403,7 @@ export default function Tracker({ session }: { session: Session }) {
             <DiarioTab data={data} update={update} period={dailyPeriod} setPeriod={setDailyPeriod} notify={notify} />
           )}
           {tab === "market" && <MarketTab data={data} update={update} notify={notify} shared={shared} />}
-          {tab === "wish" && <WishlistTab data={data} update={update} />}
+          {tab === "wish" && <WishlistTab data={data} update={update} notify={notify} />}
           {tab === "settings" && (
             <SettingsTab data={data} update={update} session={session} theme={theme} setTheme={setTheme}
               priv={priv} setPriv={setPriv} notify={notify} onExport={() => setExporting(true)}
