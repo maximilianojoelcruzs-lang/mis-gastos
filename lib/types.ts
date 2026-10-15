@@ -149,7 +149,28 @@ export type WishItem = {
   date: string;
   /** Lo que ya llevas ahorrado para esta compra. */
   saved: number;
+  /** Para quién: "" = para mí, o el id de una persona de `wishlist.people`. */
+  for: string;
+  note: string;
 };
+
+export type Relation = "pareja" | "mama" | "papa" | "hijo" | "hermano" | "amigo" | "abuelo" | "colega" | "otro";
+export type Occasion = "cumpleanos" | "navidad" | "aniversario" | "dia-madre" | "dia-padre" | "san-valentin" | "otro";
+
+/** Persona a la que le quieres regalar algo. */
+export type GiftPerson = {
+  id: string;
+  name: string;
+  relation: Relation;
+  occasion: Occasion;
+  /** "YYYY-MM-DD"; cumpleaños y aniversarios se repiten cada año. */
+  date: string;
+  /** Presupuesto para el regalo (0 = sin presupuesto). */
+  budget: number;
+  interests: string[];
+};
+
+export type Wishlist = { items: WishItem[]; people: GiftPerson[] };
 
 export type AppData = {
   version: 6;
@@ -158,7 +179,7 @@ export type AppData = {
   months: Month[];
   daily: DailyExpense[];
   market: Market;
-  wishlist: { items: WishItem[] };
+  wishlist: Wishlist;
   people: Person[];
   settlements: Settlement[];
 };

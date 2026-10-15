@@ -48,7 +48,11 @@ export default function SearchDialog({ data, onClose, onOpen }: { data: AppData;
     for (const i of data.market.items)
       if (has(i.name)) out.push({ kind: "super", id: i.id, title: i.name, meta: `Lista del súper · x${i.qty}`, amount: i.price * i.qty, sort: "0000" });
     for (const i of data.wishlist.items)
-      if (has(i.name)) out.push({ kind: "compra", id: i.id, title: i.name, meta: i.done ? "Comprado" : "Próxima compra", amount: i.price, sort: "0000" });
+      {
+        const who = i.for ? data.wishlist.people.find((p) => p.id === i.for)?.name : "";
+        if (has(i.name, who || ""))
+          out.push({ kind: "compra", id: i.id, title: i.name, meta: (i.done ? "Comprado" : who ? `Regalo para ${who}` : "Próxima compra"), amount: i.price, sort: "0000" });
+      }
     return out.sort((a, b) => b.sort.localeCompare(a.sort));
   }, [data, query]);
 

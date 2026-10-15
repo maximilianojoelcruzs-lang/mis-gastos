@@ -3,7 +3,7 @@
 // valida lo mismo que el front.
 import type {
   AisleId, AppData, BenefitCard, Category, CategoryId, DailyExpense, Expense, FrequentProduct, Market, MarketItem, Month,
-  MonthSummary, PaletteKey, Person, PricePoint, Priority, Purchase, Settlement, WishItem, YearSummary,
+  GiftPerson, MonthSummary, Occasion, PaletteKey, Person, PricePoint, Priority, Purchase, Relation, Settlement, WishItem, YearSummary,
 } from "./types";
 import { uid } from "./format";
 
@@ -370,7 +370,7 @@ export function seedData(): AppData {
     ],
     daily: [],
     market: seedMarket(),
-    wishlist: { items: [] },
+    wishlist: { items: [], people: [] },
     people: [],
     settlements: [],
   };
@@ -548,7 +548,7 @@ function normalizeMarket(raw: any): Market {
   };
 }
 
-function normalizeWish(i: any): WishItem {
+function normalizeWish(i: any, giftIds: string[]): WishItem {
   return {
     id: i?.id || uid(),
     name: str(i?.name),
@@ -560,7 +560,38 @@ function normalizeWish(i: any): WishItem {
     priority: PRIORITIES.includes(i?.priority) ? i.priority : "media",
     date: isDate(i?.date) ? i.date : "",
     saved: num(i?.saved),
+    for: typeof i?.for === "string" && giftIds.includes(i.for) ? i.for : "",
+    note: str(i?.note).slice(0, 200),
   };
+}
+
+const RELATIONS: Relation[] = ["pareja", "mama", "papa", "hijo", "hermano", "amigo", "abuelo", "colega", "otro"];
+const OCCASIONS: Occasion[] = ["cumpleanos", "navidad", "aniversario", "dia-madre", "dia-padre", "san-valentin", "otro"];
+
+function normalizeGiftPeople(raw: any): GiftPerson[] {
+  if (!Array.isArray(raw)) return [];
+  const out: GiftPerson[] = [];
+  for (const p of raw) {
+    const id = str(p?.id) || uid();
+    const name = str(p?.name).trim().slice(0, 40);
+    if (!name || out.some((x) => x.id === id)) continue;
+    out.push({
+      id, name,
+      relation: RELATIONS.includes(p?.relation) ? p.relation : "otro",
+      occasion: OCCASIONS.includes(p?.occasion) ? p.occasion : "cumpleanos",
+      date: isDate(p?.date) ? p.date : "",
+      budget: Math.max(0, num(p?.budget)),
+      interests: Array.isArray(p?.interests) ? [...new Set<string>(p.interests.filter((x: unknown) => typeof x === "string"))].slice(0, 12) : [],
+    });
+  }
+  return out.slice(0, 50);
+}
+
+function normalizeWishlist(raw: any): AppData["wishlist"] {
+  const people = normalizeGiftPeople(raw?.people);
+  const ids = people.map((p) => p.id);
+  const items = Array.isArray(raw?.items) ? raw.items.map((i: any) => normalizeWish(i, ids)) : [];
+  return { items, people };
 }
 
 export function normalize(raw: any): AppData {
@@ -584,7 +615,7 @@ export function normalize(raw: any): AppData {
     months,
     daily: Array.isArray(raw.daily) ? raw.daily.map((d: any) => normalizeDaily(d, categories, people)) : [],
     market: normalizeMarket(raw.market),
-    wishlist: { items: Array.isArray(raw.wishlist?.items) ? raw.wishlist.items.map(normalizeWish) : [] },
+    wishlist: normalizeWishlist(raw.wishlist),
     people,
     settlements,
   };
