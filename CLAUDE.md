@@ -8,7 +8,7 @@ Mis Gastos: personal-finance PWA-style app (Next.js App Router + TypeScript + Su
 
 - `npm run dev` / `npm run build` / `npm start` — Next.js (build also type-checks).
 - `npm run typecheck` — `tsc --noEmit`. After deleting/renaming an API route, `rm -rf .next` first or stale `.next/types` will fail the check.
-- There is **no linter and no test suite**. Verify with typecheck + build, then drive the UI in a browser (Playwright/Chromium is preinstalled in the cloud env). `/api/*` needs a Supabase bearer token, so tests mock `**/api/data` and `**/rest/v1/**` and seed `localStorage["sb-uzutgrejzbxezkvhezuw-auth-token"]` with a fake session.
+- There is **no linter and no test suite**. Verify with typecheck + build, then drive the UI in a browser (Playwright/Chromium is preinstalled in the cloud env). `/api/*` needs a Supabase bearer token, so tests mock `**/api/data` and `**/rest/v1/**` and seed `localStorage["sb-<project-ref>-auth-token"]` with a fake session. Without Supabase env vars the app shows `ConfigScreen`, so for local runs set e.g. `NEXT_PUBLIC_SUPABASE_URL=https://test.supabase.co` and any anon key at build time (the storage key then is `sb-test-auth-token`).
 - `lib/speech.ts` has no imports on purpose, so it can be compiled and tested alone (`npx tsc lib/speech.ts --outDir <dir> --module commonjs`).
 
 ## Architecture
@@ -37,7 +37,7 @@ Mis Gastos: personal-finance PWA-style app (Next.js App Router + TypeScript + Su
 
 **Auth**: email/password via `lib/supabase/client.ts`. `components/App.tsx` switches between `Login` (login / signup / forgot), `NewPassword` (on the `PASSWORD_RECOVERY` event) and `Tracker`. Sign-up and the recovery redirect need Supabase dashboard settings (see README).
 
-**Config**: `lib/config.ts` reads `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` with hardcoded defaults for the current project (the anon key is public by design; security is RLS). Excel/PDF export (`lib/export.ts`) is client-side and lazy-loads `write-excel-file` and `jspdf`.
+**Config**: `lib/config.ts` reads `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), set in Vercel by the Supabase Marketplace integration; there are no hardcoded defaults (the original project was deleted). The key is public by design; security is RLS. The whole database is created by `supabase/setup.sql` (concatenation of `user_data.sql`, `shared_lists.sql`, `data_sharing.sql`; regenerate it if you edit one). `vercel.json` runs `/api/keepalive` daily, which calls the `ping()` SQL function so the free-plan project isn't paused for inactivity. Excel/PDF export (`lib/export.ts`) is client-side and lazy-loads `write-excel-file` and `jspdf`.
 
 ## Workflow
 
