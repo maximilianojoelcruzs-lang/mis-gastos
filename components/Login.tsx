@@ -2,7 +2,8 @@
 import { useState, type FormEvent } from "react";
 import { traducirError } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
-import { ISpin, IWallet } from "./icons";
+import { ISpin } from "./icons";
+import Logo from "./Logo";
 
 type Mode = "login" | "signup" | "forgot";
 
@@ -59,7 +60,7 @@ export default function Login() {
   return (
     <div className="auth">
       <form className="auth-card fade" onSubmit={submit} noValidate>
-        <span className="logo lg"><IWallet size={22} /></span>
+        <div className="auth-logo"><Logo variant="gatos" size={220} /><b>Mis Gastos</b></div>
         <h1>{c.title}</h1>
         <p>{c.sub}</p>
         <label>

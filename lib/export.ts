@@ -110,6 +110,21 @@ async function toXlsx(data: AppData, m: Model): Promise<Blob> {
 const pdfText = (s: string) => s.replace(/[−–—]/g, "-").replace(/[^\x00-\xFF]/g, "?");
 const pdfMoney = (n: number) => (n < 0 ? "-" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("es-CL");
 
+/** Logo para el encabezado del PDF; si no carga, el reporte sale sin él. */
+async function logoDataUrl(): Promise<string | null> {
+  try {
+    const blob = await (await fetch("/icon-512.png")).blob();
+    return await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(typeof fr.result === "string" ? fr.result : null);
+      fr.onerror = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function toPdf(data: AppData, m: Model): Promise<Blob> {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
@@ -117,13 +132,16 @@ async function toPdf(data: AppData, m: Model): Promise<Blob> {
   const left = 40;
   let y = 52;
 
+  const logo = await logoDataUrl();
+  const tx = logo ? left + 50 : left;
+  if (logo) doc.addImage(logo, "PNG", left, y - 24, 40, 40);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
-  doc.text("Mis Gastos", left, y);
+  doc.text("Mis Gastos", tx, y);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(110);
-  doc.text(pdfText(`${m.label}  ·  generado el ${new Date().toLocaleDateString("es-CL")}`), left, y + 18);
+  doc.text(pdfText(`${m.label}  ·  generado el ${new Date().toLocaleDateString("es-CL")}`), tx, y + 18);
   doc.setTextColor(20);
   y += 42;
 

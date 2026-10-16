@@ -1,10 +1,10 @@
-import { IWallet } from "./icons";
+import Logo from "./Logo";
 
 export default function ConfigScreen() {
   return (
     <div className="auth">
       <div className="auth-card">
-        <span className="logo lg"><IWallet size={22} /></span>
+        <Logo size={48} className="lg" />
         <h1>Falta un paso de configuración</h1>
         <p>
           La app no tiene base de datos conectada. En Vercel, conecta Supabase desde <b>Storage</b> (eso define

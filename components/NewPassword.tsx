@@ -2,7 +2,8 @@
 import { useState, type FormEvent } from "react";
 import { traducirError } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
-import { ISpin, IWallet } from "./icons";
+import { ISpin } from "./icons";
+import Logo from "./Logo";
 
 /** Se muestra al abrir el enlace de "olvidé mi contraseña". */
 export default function NewPassword({ onDone }: { onDone: () => void }) {
@@ -26,7 +27,7 @@ export default function NewPassword({ onDone }: { onDone: () => void }) {
   return (
     <div className="auth">
       <form className="auth-card fade" onSubmit={submit}>
-        <span className="logo lg"><IWallet size={22} /></span>
+        <Logo size={48} className="lg" />
         <h1>Elige una contraseña nueva</h1>
         <p>Úsala la próxima vez que inicies sesión.</p>
         <label>

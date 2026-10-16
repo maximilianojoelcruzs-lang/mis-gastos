@@ -9,6 +9,7 @@ import { useSharedList } from "@/lib/useSharedList";
 import { ROLE_LABEL, useSpaces, type Space } from "@/lib/useSpaces";
 import type { AppData } from "@/lib/types";
 import ExportForm from "./ExportForm";
+import Logo from "./Logo";
 import GastosTab from "./GastosTab";
 import DiarioTab from "./DiarioTab";
 import MarketTab from "./MarketTab";
@@ -329,7 +330,7 @@ export default function Tracker({ session }: { session: Session }) {
   );
   const brand = (
     <div className="brand">
-      <span className="logo"><IWallet size={17} /></span>
+      <Logo size={32} />
       <b>Mis Gastos</b>
     </div>
   );
