@@ -260,10 +260,6 @@ select.bare{cursor:pointer;color:var(--muted);font-size:12.5px;}
 .pricecell.best{border-color:color-mix(in srgb,var(--good) 45%,transparent);}
 .pricecell .n{flex:1;min-width:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .pricecell .amount{width:88px;}
-.cardrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;}
-.cardrow:last-child{border-bottom:none;}
-.cardrow .name{flex:1;min-width:120px;font-weight:500;}
-.cardrow .saldo{display:inline-flex;align-items:center;gap:6px;}
 .split{margin-top:14px;padding:14px;border-radius:10px;background:var(--bg);border:1px solid var(--line);}
 .split .line{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:4px 0;font-size:13px;}
 .split .line.big{font-size:15px;font-weight:600;padding-top:8px;margin-top:6px;border-top:1px solid var(--line);}
@@ -368,8 +364,6 @@ table.t td.neg{color:var(--bad);}
   .facts{grid-template-columns:1fr;}
   .qadd{grid-template-columns:1fr 1fr;}
   .qadd .name-f,.qadd .btn{grid-column:1/-1;}
-  .cardrow .name{flex-basis:calc(100% - 90px);}
-  .cardrow .saldo:last-child{margin-left:auto;}
   .row select.cat{width:84px;}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none !important;transition:none !important;}}
@@ -377,8 +371,6 @@ table.t td.neg{color:var(--bad);}
 /* ---------- Súper: presupuesto, frecuentes, agregar varios ---------- */
 .addmany{display:flex;gap:8px;align-items:center;}
 .addmany .field{flex:1;}
-.budget-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
-.budget-row .grow{flex:1;min-width:140px;}
 .bar.stack{position:relative;}
 .bar.stack > i.plan{position:absolute;left:0;top:0;bottom:0;background:color-mix(in srgb,var(--ink) 30%,transparent);border-radius:999px;}
 .bar.stack > i.now{position:absolute;left:0;top:0;bottom:0;z-index:1;}
@@ -535,4 +527,43 @@ table.t td.neg{color:var(--bad);}
   .wadd .amount{flex:1;width:auto;}
   .wcard-detail,.gedit-row{grid-template-columns:1fr;}
   .wcard-main .note{max-width:140px;}
+}
+
+/* ---------- Presupuesto del súper (plan mensual) ---------- */
+.sb-hero{margin-bottom:12px;}
+.sb-total{font-size:13px;align-self:flex-end;padding-bottom:6px;}
+.sb-total b{font-size:15px;}
+.sb-load{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+.sb-load .r{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;font-size:13px;
+  border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);background:color-mix(in srgb,var(--warn) 7%,transparent);}
+.sb-load .a{display:flex;gap:6px;}
+.sb-rows{display:flex;flex-direction:column;margin-top:16px;border-top:1px solid var(--line);}
+.sb-row,.sb-extra{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
+.sb-row:last-child{border-bottom:none;}
+.sb-row .n,.sb-extra .n{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.sb-row .n b,.sb-extra .n b{font-weight:500;font-size:14px;}
+.sb-row .n small,.sb-extra .n small{font-size:12px;color:var(--muted);}
+.sb-row .m{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:150px;font-size:13px;}
+.sb-row .m .bar{width:100%;height:5px;}
+.sb-ico{width:12px;height:12px;display:grid;place-items:center;flex:none;color:var(--muted);}
+.sb-note{font-size:12.5px;line-height:1.55;margin:12px 0 0;}
+.sb-note b{color:var(--ink);font-weight:500;}
+.sb-edit{margin-top:14px;padding:14px;border-radius:12px;background:var(--bg);border:1px solid var(--line);}
+.sb-card{padding:10px 0 12px;border-bottom:1px solid var(--line);}
+.sb-card-h{display:flex;align-items:center;gap:8px;}
+.sb-card-h .name{flex:1;min-width:0;font-weight:500;}
+.sb-card-f{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;padding-left:20px;}
+.sb-card-f label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);font-weight:500;}
+.sb-card-f .amount{width:140px;}
+.sb-extra{border-bottom:none;padding-bottom:0;}
+.sb-extra .amount{width:140px;flex:none;}
+.split-h{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.auto-amt{display:inline-block;text-align:right;color:var(--muted);padding:6px 9px;}
+@media (max-width:600px){
+  .sb-row .m{min-width:110px;}
+  .sb-card-f{padding-left:0;}
+  .sb-card-f label{flex:1;}
+  .sb-card-f .amount{width:100%;}
+  .sb-extra{flex-wrap:wrap;}
+  .sb-extra .amount{width:100%;}
 }

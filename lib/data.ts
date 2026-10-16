@@ -336,10 +336,10 @@ export function storeComparison(market: Market): { quotes: StoreQuote[]; best: s
 
 // ---------- Semilla ----------
 const exp = (id: string, name: string, amount: number, category: CategoryId, fixed = true, dueDay: number | null = null): Expense =>
-  ({ id, name, amount, paid: false, category, fixed, dueDay, installment: null, tags: [] });
+  ({ id, name, amount, paid: false, category, fixed, dueDay, installment: null, tags: [], auto: "" });
 
 export function seedMarket(): Market {
-  return { items: [], templates: [], history: {}, stores: [...DEFAULT_STORES], store: "", cards: [], budget: 0, purchases: [], frequent: {}, shared: null };
+  return { items: [], templates: [], history: {}, stores: [...DEFAULT_STORES], store: "", cards: [], extra: 0, purchases: [], frequent: {}, shared: null };
 }
 
 export function seedData(): AppData {
@@ -424,6 +424,7 @@ function normalizeExpense(i: any, categories: Category[]): Expense {
     dueDay: dueDay >= 1 && dueDay <= 31 ? dueDay : null,
     installment: total >= 2 ? { current, total } : null,
     tags: normTags(i?.tags),
+    auto: i?.auto === "super" ? "super" : "",
   };
 }
 
@@ -520,6 +521,8 @@ function normalizeMarket(raw: any): Market {
         aisles: Array.isArray(c?.aisles) ? c.aisles.filter((a: unknown) => AISLE_IDS.includes(a as AisleId)) : [...DEFAULT_CARD_AISLES],
         color: PALETTE_KEYS.includes(c?.color) ? c.color : "violet",
         use: !!c?.use,
+        monthly: Math.max(0, num(c?.monthly)),
+        loaded: /^\d{4}-\d{2}$/.test(c?.loaded) ? c.loaded : "",
       }))
     : [];
   const purchases: Purchase[] = Array.isArray(raw?.purchases)
@@ -528,6 +531,9 @@ function normalizeMarket(raw: any): Market {
         .map((p: any) => ({
           id: p?.id || uid(), date: p.date, total: num(p?.total), card: num(p?.card), pocket: num(p?.pocket),
           store: str(p?.store).slice(0, 30), count: Math.floor(num(p?.count)),
+          byCard: p?.byCard && typeof p.byCard === "object"
+            ? Object.fromEntries(Object.entries(p.byCard).filter(([k, v]) => k && num(v) > 0).map(([k, v]) => [k, num(v)]))
+            : {},
         }))
         .slice(-200)
     : [];
@@ -544,7 +550,7 @@ function normalizeMarket(raw: any): Market {
     ? { id: sh.id, name: str(sh.name, "Lista compartida").slice(0, 40), code: sh.code } : null;
   return {
     items, templates, history, stores, store, cards,
-    budget: Math.max(0, num(raw?.budget)), purchases, frequent: trimFrequent(frequent), shared,
+    extra: Math.max(0, num(raw?.extra)), purchases, frequent: trimFrequent(frequent), shared,
   };
 }
 
@@ -847,7 +853,8 @@ export function buildNextMonth(base: Month | undefined): Month {
       if (i.installment.current >= i.installment.total) continue;
       items.push({ ...i, id: uid(), paid: false, installment: { current: i.installment.current + 1, total: i.installment.total } });
     } else {
-      items.push({ ...i, id: uid(), paid: false, amount: i.fixed ? i.amount : 0 });
+      // La línea automática del súper parte en $0 y se recalcula con el plan del mes.
+      items.push({ ...i, id: uid(), paid: false, amount: i.fixed && !i.auto ? i.amount : 0 });
     }
   }
   return {
@@ -917,6 +924,44 @@ export function frequentProducts(market: Market, limit = 12) {
 /** Gasto del súper (tarjeta + bolsillo) en un mes "YYYY-MM". */
 export function superSpent(market: Market, period: string) {
   return market.purchases.filter((p) => p.date.startsWith(period)).reduce((s, p) => s + p.total, 0);
+}
+
+/** Plan del súper de un mes: carga de cada tarjeta + extra de bolsillo, y cuánto se ha usado de cada parte. */
+export function superPlan(market: Market, period: string) {
+  const list = market.purchases.filter((p) => p.date.startsWith(period));
+  const cards = market.cards.map((card) => {
+    const used = list.reduce((s, p) => s + (p.byCard[card.id] || 0), 0);
+    return { card, plan: card.monthly, used };
+  });
+  // Compras antiguas sin detalle por tarjeta: su parte con tarjeta va al total.
+  const cardUsed = list.reduce((s, p) => s + p.card, 0);
+  const pocketUsed = list.reduce((s, p) => s + p.pocket, 0);
+  const cardPlan = market.cards.reduce((s, c) => s + c.monthly, 0);
+  const budget = cardPlan + market.extra;
+  return {
+    cards, cardPlan, cardUsed, pocketUsed, extra: market.extra, budget,
+    spent: cardUsed + pocketUsed, purchases: list,
+    /** Lo que sale de tu sueldo: el extra planeado, o más si gastaste más de tu bolsillo. */
+    fromSalary: Math.max(market.extra, pocketUsed),
+  };
+}
+
+export const SUPER_LINE = "Supermercado (bolsillo)";
+
+/** Mantiene en Cuentas una sola línea con lo que pones de tu bolsillo en el súper ese mes
+ *  (el extra planeado, o lo gastado si fue más). Si no hay extra ni gasto, la quita. */
+export function syncSuperLine(d: AppData, period: string) {
+  const month = d.months.find((m) => m.period === period) || (period === currentPeriod() ? d.months.find((m) => m.id === d.activeId) : undefined);
+  if (!month) return;
+  const amount = superPlan(d.market, period).fromSalary;
+  const line = month.items.find((i) => i.auto === "super");
+  if (!amount) {
+    if (line) month.items = month.items.filter((i) => i !== line);
+    return;
+  }
+  const comida = d.categories.some((c) => c.id === "comida") ? "comida" : "otros";
+  if (line) line.amount = amount;
+  else month.items.push({ id: uid(), name: SUPER_LINE, amount, paid: false, category: comida, fixed: false, dueDay: null, installment: null, tags: ["súper"], auto: "super" });
 }
 
 export function logPurchase(market: Market, p: Omit<Purchase, "id" | "date">) {
