@@ -5,6 +5,7 @@
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 :root{
+  --brand:#2c9c6e;
   color-scheme:dark;
   --bg:#0A0A0B; --surface:#111113; --surface2:#18181B; --hover:#1D1D21;
   --line:#232326; --line2:#2E2E33;
@@ -117,7 +118,8 @@ select.bare{cursor:pointer;color:var(--muted);font-size:12.5px;}
 .logo-img.pulse{animation:logo-pulse 1.6s ease-in-out infinite;border-radius:20px;}
 @keyframes logo-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.94);opacity:.85}}
 .auth-logo{display:flex;flex-direction:column;align-items:center;gap:6px;margin:0 auto 26px;}
-.auth-logo .logo-gatos{display:block;width:220px;max-width:70%;height:auto;}
+.auth-logo .logo-gatos{display:block;width:220px;max-width:70%;height:auto;padding:18px 22px 10px;border-radius:24px;box-sizing:content-box;
+  background:color-mix(in srgb,var(--brand) 16%,var(--surface));border:1px solid color-mix(in srgb,var(--brand) 30%,transparent);}
 .auth-logo b{font-size:15px;font-weight:600;letter-spacing:-.01em;}
 .auth-card h1{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px;}
 .auth-card p{color:var(--muted);margin:0 0 26px;line-height:1.5;}
