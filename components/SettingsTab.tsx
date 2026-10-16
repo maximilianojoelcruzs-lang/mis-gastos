@@ -19,6 +19,8 @@ type Props = {
   setTheme: (t: Theme) => void;
   priv: boolean;
   setPriv: (v: boolean) => void;
+  showBalance: boolean;
+  setShowBalance: (v: boolean) => void;
   notify: Notify;
   onExport: () => void;
   spaces: Spaces;
@@ -26,7 +28,7 @@ type Props = {
   openSpace: (s: Space) => void;
 };
 
-export default function SettingsTab({ data, update, session, theme, setTheme, priv, setPriv, notify, onExport, spaces, space, openSpace }: Props) {
+export default function SettingsTab({ data, update, session, theme, setTheme, priv, setPriv, showBalance, setShowBalance, notify, onExport, spaces, space, openSpace }: Props) {
   const [colorFor, setColorFor] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
   const [newStore, setNewStore] = useState("");
@@ -120,6 +122,10 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
         <div className="set-row">
           <div className="t"><b>Ocultar montos</b><span>Cambia los montos por puntos, por si alguien mira tu pantalla. Se guarda solo en este dispositivo.</span></div>
           <button className={"toggle " + (priv ? "on" : "")} aria-label="Ocultar montos" aria-pressed={priv} onClick={() => setPriv(!priv)} />
+        </div>
+        <div className="set-row">
+          <div className="t"><b>Saldo siempre visible</b><span>Muestra “Te queda este mes” arriba en todas las pantallas. Se guarda solo en este dispositivo.</span></div>
+          <button className={"toggle " + (showBalance ? "on" : "")} aria-label="Saldo siempre visible" aria-pressed={showBalance} onClick={() => setShowBalance(!showBalance)} />
         </div>
       </section>
 
