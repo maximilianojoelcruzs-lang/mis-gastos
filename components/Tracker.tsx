@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ApiError, api } from "@/lib/api";
-import { addDays, currentPeriod, normalize, todayISO, weekSummary } from "@/lib/data";
-import { instant, setPrivacy } from "@/lib/format";
+import { addDays, currentPeriod, daysInPeriod, normalize, summarizeMonth, todayISO, weekSummary } from "@/lib/data";
+import { clp, instant, setPrivacy } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
 import { useSharedList } from "@/lib/useSharedList";
 import { ROLE_LABEL, useSpaces, type Space } from "@/lib/useSpaces";
@@ -74,6 +74,7 @@ export default function Tracker({ session }: { session: Session }) {
     return t === "light" || t === "dark" ? t : "auto";
   });
   const [priv, setPriv] = useState(() => read("mg-private") === "1");
+  const [showBalance, setShowBalance] = useState(() => read("mg-balance") !== "0");
   const skipSave = useRef(true);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const spaces = useSpaces(userId);
@@ -250,7 +251,8 @@ export default function Tracker({ session }: { session: Session }) {
 
   useEffect(() => {
     write("mg-private", priv ? "1" : "0");
-  }, [priv]);
+    write("mg-balance", showBalance ? "1" : "0");
+  }, [priv, showBalance]);
 
   // Atajos: "/" o Ctrl/Cmd+K abren el buscador.
   useEffect(() => {
@@ -329,16 +331,32 @@ export default function Tracker({ session }: { session: Session }) {
     </button>
   );
   const brand = (
-    <div className="brand">
+    <div className={"brand " + (showBalance ? "with-bal" : "")}>
       <Logo size={32} />
       <b>Mis Gastos</b>
     </div>
   );
 
+  // Saldo siempre visible: "Te queda" del mes en curso (o del mes abierto si no existe).
+  const period = currentPeriod();
+  const balMonth = data.months.find((m) => m.period === period) || month;
+  const bal = summarizeMonth(balMonth, data.daily).balance;
+  const isNow = balMonth.period === period;
+  const daysLeft = isNow ? daysInPeriod(period) - Number(todayISO().slice(8, 10)) + 1 : 0;
+  const goBalance = () => { setData((s) => ({ ...s, activeId: balMonth.id })); setTab("gastos"); };
+  const balTitle = `${bal < 0 ? "Déficit" : "Te queda"} en ${balMonth.label || "el mes"}: ${clp(Math.abs(bal))}. Toca para ver tus cuentas.`;
+
   return (
     <>
       <aside className="side">
         {brand}
+        {showBalance && (
+          <button className={"balcard " + (bal < 0 ? "neg" : "")} onClick={goBalance} title={balTitle} aria-label={balTitle}>
+            <span className="l">{bal < 0 ? "Déficit" : "Te queda"} · {balMonth.label || "este mes"}</span>
+            <span className="v num">{bal < 0 ? "−" : ""}{clp(Math.abs(bal))}</span>
+            {isNow && bal > 0 && <span className="s">{clp(Math.round(bal / daysLeft))} por día · {daysLeft} {daysLeft === 1 ? "día" : "días"}</span>}
+          </button>
+        )}
         {spaces.spaces.length > 1 && (
           <select className="field sm space-pick" aria-label="Finanzas que estás viendo" value={owner || ""}
             onChange={(e) => { const s = spaces.spaces.find((x) => (x.owner || "") === e.target.value); if (s) openSpace(s); }}>
@@ -374,6 +392,11 @@ export default function Tracker({ session }: { session: Session }) {
       <main className="main">
         <header className="topbar">
           {brand}
+          {showBalance && (
+            <button className={"balchip num " + (bal < 0 ? "neg" : "")} onClick={goBalance} title={balTitle} aria-label={balTitle}>
+              {bal < 0 ? "−" : ""}{clp(Math.abs(bal))}
+            </button>
+          )}
           <div className="r">
             {saveBadge}
             <button className="btn ghost icon sm" onClick={() => setSearch(true)} title="Buscar"><ISearch size={15} /></button>
@@ -407,7 +430,8 @@ export default function Tracker({ session }: { session: Session }) {
           {tab === "wish" && <WishlistTab data={data} update={update} notify={notify} />}
           {tab === "settings" && (
             <SettingsTab data={data} update={update} session={session} theme={theme} setTheme={setTheme}
-              priv={priv} setPriv={setPriv} notify={notify} onExport={() => setExporting(true)}
+              priv={priv} setPriv={setPriv} showBalance={showBalance} setShowBalance={setShowBalance}
+              notify={notify} onExport={() => setExporting(true)}
               spaces={spaces} space={space} openSpace={openSpace} />
           )}
         </div>
