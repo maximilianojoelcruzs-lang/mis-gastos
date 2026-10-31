@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { allTags, catColor, catOf, chargeCard, currentPeriod, frequentDaily, learnCategory, limitAlert, todayISO } from "@/lib/data";
+import { allTags, catColor, catOf, chargeCard, currentPeriod, frequentDaily, learnCategory, limitAlert, nextPeriod, periodName, todayISO } from "@/lib/data";
 import { clp, uid } from "@/lib/format";
 import type { AppData } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
@@ -14,7 +14,8 @@ type Props = {
   update: Update;
   notify: Notify;
   onClose: () => void;
-  onSaved?: (date: string) => void;
+  /** Mes del presupuesto donde quedó el gasto ("YYYY-MM"). */
+  onSaved?: (period: string) => void;
 };
 
 /** Ventana para anotar un gasto del día en un par de segundos. */
@@ -23,6 +24,12 @@ export default function QuickAdd({ data, update, notify, onClose, onSaved }: Pro
   const [name, setName] = useState("");
   const [manualCat, setManualCat] = useState<string | null>(null);
   const [date, setDate] = useState(todayISO());
+  // Mes del presupuesto: por defecto el de la fecha; se puede elegir el siguiente (ej. ya te pagaron noviembre).
+  const [budget, setBudget] = useState<string | null>(null);
+  const datePeriod = date.slice(0, 7);
+  const target = budget ?? datePeriod;
+  const monthOptions = [...new Set([currentPeriod(), nextPeriod(currentPeriod()), datePeriod, nextPeriod(datePeriod)])].sort();
+  const targetMonth = data.months.find((m) => m.period === target);
   const [error, setError] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [split, setSplit] = useState<SplitValue>({ paidBy: "", split: [] });
@@ -48,17 +55,18 @@ export default function QuickAdd({ data, update, notify, onClose, onSaved }: Pro
     if (amount <= 0) return setError("Escribe cuánto gastaste.");
     const finalName = name.trim() || catOf(data.categories, category).label;
     const card = payCard ? payCard.id : "";
-    const entry = { id: uid(), date, name: finalName, amount, category, card, cardAmount: 0, tags, paidBy: split.paidBy, split: split.split };
+    const entry = { id: uid(), date, name: finalName, amount, category, card, cardAmount: 0, tags, paidBy: split.paidBy, split: split.split,
+      period: target === datePeriod ? "" : target };
     update((d) => {
       d.daily.push({ ...entry, cardAmount: card ? chargeCard(d.market, card, amount) : 0 });
     });
     try { localStorage.setItem("mg-payer", payer); } catch { /* sin almacenamiento */ }
-    const alert = limitAlert({ ...data, daily: [...data.daily, { ...entry, cardAmount: covered }] }, category, date.slice(0, 7));
+    const alert = limitAlert({ ...data, daily: [...data.daily, { ...entry, cardAmount: covered }] }, category, target);
     const base = payCard && covered > 0
       ? `Anotado: ${finalName} ${clp(amount)} · ${payCard.name} ${clp(covered)}${amount > covered ? ` + bolsillo ${clp(amount - covered)}` : ""}`
       : `Anotado: ${finalName} ${clp(amount)}`;
     notify(alert ? `${base}. ${alert}` : base);
-    onSaved?.(date);
+    onSaved?.(target);
     onClose();
   };
 
@@ -135,12 +143,25 @@ export default function QuickAdd({ data, update, notify, onClose, onSaved }: Pro
 
       <label className="f">
         <span>Fecha</span>
-        <input className="field sm" type="date" value={date} max={todayISO()}
-          onChange={(e) => setDate(e.target.value || todayISO())} style={{ width: 170 }} />
+        <input className="field sm" type="date" value={date}
+          onChange={(e) => { setDate(e.target.value || todayISO()); setBudget(null); }} style={{ width: 170 }} />
       </label>
-      {date.slice(0, 7) !== currentPeriod() && (
-        <p className="muted" style={{ fontSize: 12, margin: "-4px 0 0" }}>Se guardará en el mes de esa fecha.</p>
-      )}
+      <div className="f" style={{ marginBottom: 4 }}>
+        <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginBottom: 6, fontWeight: 500 }}>Se descuenta de</span>
+        <div className="seg" role="group" aria-label="Mes del presupuesto">
+          {monthOptions.map((p) => (
+            <button key={p} type="button" className={target === p ? "on" : ""} aria-pressed={target === p} onClick={() => setBudget(p === datePeriod ? null : p)}>
+              {periodName(p)}
+            </button>
+          ))}
+        </div>
+        <p className="muted" style={{ fontSize: 12, margin: "6px 0 0", lineHeight: 1.5 }}>
+          {target !== datePeriod
+            ? `Queda con su fecha real, pero se descuenta del presupuesto de ${periodName(target)} (por ejemplo, si ya te pagaron ese mes).`
+            : "Se descuenta del mes de la fecha."}
+          {!targetMonth && ` Aún no tienes ${periodName(target)} en Cuentas: créalo con “Nuevo mes” para que se descuente de tu sueldo.`}
+        </p>
+      </div>
 
       {error && <div className="auth-err" role="alert" style={{ marginTop: 12, marginBottom: 0 }}>{error}</div>}
       <div className="actions">

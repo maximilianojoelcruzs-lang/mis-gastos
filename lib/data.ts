@@ -462,6 +462,7 @@ function normalizeDaily(d: any, categories: Category[], people: Person[]): Daily
     tags: normTags(d?.tags),
     paidBy,
     split,
+    period: typeof d?.period === "string" && /^\d{4}-\d{2}$/.test(d.period) && !(isDate(d?.date) && d.date.startsWith(d.period)) ? d.period : "",
   };
 }
 
@@ -629,6 +630,9 @@ export function normalize(raw: any): AppData {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ---------- Cálculos ----------
+/** Mes del presupuesto al que pertenece un gasto diario (el que se eligió, o el de su fecha). */
+export const dailyPeriod = (d: Pick<DailyExpense, "date" | "period">) => d.period || d.date.slice(0, 7);
+
 /** Cómo se reparte un gasto diario: mi parte (si es compartido, en partes iguales),
  *  lo que de esa parte cubrió mi tarjeta de alimentación y lo que salió de mi bolsillo. */
 export function dailyParts(d: DailyExpense) {
@@ -657,7 +661,7 @@ export function spentByCategory(data: AppData, period: string): Record<CategoryI
   const month = data.months.find((m) => m.period === period);
   if (month) return summarizeMonth(month, data.daily).byCategory;
   const out: Record<CategoryId, number> = {};
-  for (const d of data.daily) if (d.date.startsWith(period)) out[d.category] = (out[d.category] || 0) + dailyParts(d).pocket;
+  for (const d of data.daily) if (dailyPeriod(d) === period) out[d.category] = (out[d.category] || 0) + dailyParts(d).pocket;
   return out;
 }
 
@@ -786,7 +790,7 @@ export function summarizeMonth(m: Month, daily: DailyExpense[] = []): MonthSumma
   let dailyCard = 0;
   if (m.period) {
     for (const d of daily) {
-      if (!d.date.startsWith(m.period)) continue;
+      if (dailyPeriod(d) !== m.period) continue;
       const { card, pocket } = dailyParts(d);
       dailyTotal += pocket;
       dailyCard += card;

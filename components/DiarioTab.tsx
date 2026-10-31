@@ -1,8 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  allTags, balances, catColor, catOf, chargeCard, currentPeriod, dailyParts, daysInPeriod, learnCategory, limitAlert, limitStatus,
-  periodName, refundCard, shiftPeriod, spentByCategory, summarizeMonth, todayISO,
+  allTags, balances, catColor, catOf, chargeCard, currentPeriod, dailyParts, dailyPeriod, daysInPeriod, learnCategory, limitAlert, limitStatus,
+  nextPeriod, periodName, refundCard, shiftPeriod, spentByCategory, summarizeMonth, todayISO,
 } from "@/lib/data";
 import { clp, dayLabel, uid } from "@/lib/format";
 import type { AppData, CategoryId, DailyExpense } from "@/lib/types";
@@ -22,6 +22,7 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
   const [amount, setAmount] = useState(0);
   const [manualCat, setManualCat] = useState<string | null>(null);
   const [dateOverride, setDateOverride] = useState<string | null>(null);
+  useEffect(() => setDateOverride(null), [period]);
   const [tags, setTags] = useState<string[]>([]);
   const [split, setSplit] = useState<SplitValue>({ paidBy: "", split: [] });
   const [filter, setFilter] = useState<CategoryId | "all">("all");
@@ -40,11 +41,14 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
   const payerCard = split.paidBy ? undefined : cards.find((c) => c.id === payer);
   const tagList = useMemo(() => allTags(data), [data]);
 
-  const formDate = dateOverride && dateOverride.startsWith(period) ? dateOverride : isCurrent ? today : `${period}-01`;
+  // Mirando un mes futuro, la fecha parte en hoy: es una compra de hoy pagada con la plata de ese mes.
+  const formDate = dateOverride ?? (isCurrent || period > currentPeriod() ? today : `${period}-01`);
   const learned = learnCategory(data, name);
   const category = manualCat ?? learned.id;
 
-  const list = useMemo(() => data.daily.filter((d) => d.date.startsWith(period)), [data.daily, period]);
+  // Lo anotado aquí se descuenta de este mes (aunque la fecha sea de otro).
+  const list = useMemo(() => data.daily.filter((d) => dailyPeriod(d) === period), [data.daily, period]);
+  const movedOut = data.daily.filter((d) => d.date.startsWith(period) && dailyPeriod(d) !== period);
   // Los totales usan "mi parte": en un gasto compartido solo cuenta lo que me toca.
   const total = list.reduce((s, d) => s + dailyParts(d).mine, 0);
   const byCategory = useMemo(() => {
@@ -91,7 +95,8 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
     const finalName = name.trim() || catOf(data.categories, category).label;
     const card = payerCard ? payerCard.id : "";
     const covered = payerCard ? Math.min(Math.max(0, payerCard.balance), amount) : 0;
-    const entry: DailyExpense = { id: uid(), date: formDate, name: finalName, amount, category, card, cardAmount: 0, tags, paidBy: split.paidBy, split: split.split };
+    const entry: DailyExpense = { id: uid(), date: formDate, name: finalName, amount, category, card, cardAmount: 0, tags, paidBy: split.paidBy, split: split.split,
+      period: formDate.startsWith(period) ? "" : period };
     update((d) => {
       d.daily.push({ ...entry, cardAmount: card ? chargeCard(d.market, card, amount) : 0 });
     });
@@ -186,8 +191,8 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
           <button className="btn primary" style={{ height: 36 }} onClick={add}><IPlus size={14} /> Agregar</button>
         </div>
         <div className="qadd-2">
-          <input className="field sm" type="date" value={formDate} min={`${period}-01`} max={`${period}-${String(daysInPeriod(period)).padStart(2, "0")}`}
-            onChange={(e) => setDateOverride(e.target.value)} style={{ width: 160 }} aria-label="Fecha" />
+          <input className="field sm" type="date" value={formDate}
+            onChange={(e) => setDateOverride(e.target.value || null)} style={{ width: 160 }} aria-label="Fecha" />
           {cards.length > 0 && !split.paidBy && (
             <select className="field sm" value={payer} onChange={(e) => setPayer(e.target.value)} aria-label="Pagar con" style={{ width: "auto", maxWidth: 210 }}>
               <option value="">Pago: mi bolsillo</option>
@@ -198,6 +203,11 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
             <TagInput value={tags} onChange={setTags} suggestions={tagList} placeholder="#etiqueta (opcional)" />
           </div>
         </div>
+        {!formDate.startsWith(period) && (
+          <p className="muted hint" style={{ marginTop: 8 }}>
+            Fecha {dayLabel(formDate, today).toLowerCase()}, pero se descuenta del presupuesto de <b>{periodName(period)}</b>.
+          </p>
+        )}
         {manualCat === null && learned.learned && name.trim() && (
           <p className="muted hint" style={{ marginTop: 8 }}>Categoría “{catOf(data.categories, category).label}” según lo que anotaste antes.</p>
         )}
@@ -297,6 +307,12 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
             ))}
           </div>
         )}
+        {movedOut.length > 0 && (
+          <p className="muted hint" style={{ margin: "0 0 10px" }}>
+            {movedOut.length === 1 ? "1 gasto con fecha de este mes se descuenta" : `${movedOut.length} gastos con fecha de este mes se descuentan`} de{" "}
+            {[...new Set(movedOut.map((d) => periodName(dailyPeriod(d))))].join(", ")}.
+          </p>
+        )}
         {groups.length === 0 ? (
           <div className="empty"><ICoffee size={20} /><div style={{ marginTop: 8 }}>{list.length ? "Nada con ese filtro." : `Aún no hay gastos en ${periodName(period)}.`}</div></div>
         ) : (
@@ -361,6 +377,17 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
                                 onChange={(v) => setDailySplit(d.id, v)} />
                             </div>
                           )}
+                          <div className="f" style={{ gridColumn: "1 / -1" }}>
+                            <span>Se descuenta de</span>
+                            <div className="seg" role="group" aria-label="Mes del presupuesto">
+                              {[...new Set([shiftPeriod(d.date.slice(0, 7), -1), d.date.slice(0, 7), nextPeriod(d.date.slice(0, 7)), dailyPeriod(d)])].sort().map((p) => (
+                                <button key={p} className={dailyPeriod(d) === p ? "on" : ""} aria-pressed={dailyPeriod(d) === p}
+                                  onClick={() => onDaily(d.id, (x) => { x.period = x.date.startsWith(p) ? "" : p; })}>
+                                  {periodName(p)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                           <div className="foot">
                             <span className="muted" style={{ fontSize: 12 }}>
                               {d.cardAmount > 0 ? "Al eliminarlo, el saldo vuelve a la tarjeta." : ""}

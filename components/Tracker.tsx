@@ -452,7 +452,7 @@ export default function Tracker({ session }: { session: Session }) {
         ))}
       </nav>
 
-      {quick && <QuickAdd data={data} update={update} notify={notify} onClose={() => setQuick(false)} onSaved={(date) => setDailyPeriod(date.slice(0, 7))} />}
+      {quick && <QuickAdd data={data} update={update} notify={notify} onClose={() => setQuick(false)} onSaved={(p) => setDailyPeriod(p)} />}
       {search && <SearchDialog data={data} onClose={() => setSearch(false)} onOpen={openHit} />}
       {exporting && (
         <Modal onClose={() => setExporting(false)} label="Exportar">

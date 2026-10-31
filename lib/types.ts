@@ -62,6 +62,8 @@ export type DailyExpense = {
   paidBy: string;
   /** Con quiénes se divide en partes iguales (ids de `people`, sin contarme). Vacío = gasto solo mío. */
   split: string[];
+  /** Mes "YYYY-MM" de cuyo presupuesto se descuenta, si no es el de la fecha (ej. ya te pagaron el próximo mes). "" = el de la fecha. */
+  period: string;
 };
 
 /** Persona con la que compartes gastos (pareja, roommate…). */
