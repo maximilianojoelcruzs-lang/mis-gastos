@@ -1,7 +1,7 @@
 // Exportación a Excel (.xlsx) y PDF. Todo ocurre en el navegador; las librerías
 // pesadas se cargan solo al exportar.
 import type { AppData, Month } from "./types";
-import { balances, catOf, currentPeriod, dailyParts, limitStatus, periodName, summarizeMonth } from "./data";
+import { balances, catOf, currentPeriod, dailyParts, dailyPeriod, limitStatus, periodName, summarizeMonth } from "./data";
 
 export type ExportScope = "month" | "year" | "all";
 export type ExportFormat = "xlsx" | "pdf";
@@ -21,7 +21,7 @@ function build(data: AppData, scope: ExportScope) {
   const { months, label, slug } = pick(data, scope);
   const summaries = months.map((m) => summarizeMonth(m, data.daily));
   const periods = new Set(months.map((m) => m.period).filter(Boolean));
-  const daily = data.daily.filter((d) => periods.has(d.date.slice(0, 7))).sort((a, b) => a.date.localeCompare(b.date));
+  const daily = data.daily.filter((d) => periods.has(dailyPeriod(d))).sort((a, b) => a.date.localeCompare(b.date));
   const catTotals = data.categories.map((c) => ({
     cat: c,
     byMonth: summaries.map((s) => s.byCategory[c.id] || 0),
