@@ -7,6 +7,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import type { AppData, PaletteKey } from "@/lib/types";
 import type { Space, Spaces } from "@/lib/useSpaces";
 import SharingCard from "./SharingCard";
+import TrashCard from "./TrashCard";
 import CurrencyInput from "./CurrencyInput";
 import { IDownload, IPlus, ITrash, IUsers, IX } from "./icons";
 import type { Notify, Theme, Update } from "./Tracker";
@@ -225,6 +226,8 @@ export default function SettingsTab({ data, update, session, theme, setTheme, pr
       </section>
 
       <SharingCard spaces={spaces} space={space} openSpace={openSpace} notify={notify} userId={session.user.id} />
+
+      <TrashCard data={data} update={update} notify={notify} />
 
       <section className="card">
         <div className="card-h"><h2>Tus datos</h2></div>
