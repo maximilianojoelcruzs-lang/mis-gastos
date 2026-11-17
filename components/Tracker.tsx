@@ -26,7 +26,8 @@ import {
 
 export type Update = (mutate: (draft: AppData) => void) => void;
 export type SetData = (next: AppData | ((prev: AppData) => AppData)) => void;
-export type Notify = (text: string) => void;
+/** Aviso breve; con `undo`, muestra un botón "Deshacer" por unos segundos. */
+export type Notify = (text: string, undo?: () => void) => void;
 export type Theme = "auto" | "light" | "dark";
 
 type Tab = "panel" | "gastos" | "diario" | "market" | "wish" | "settings";
@@ -64,7 +65,7 @@ export default function Tracker({ session }: { session: Session }) {
   const [loadError, setLoadError] = useState("");
   const [save, setSave] = useState<SaveState>("");
   const [tab, setTab] = useState<Tab>("panel");
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const [quick, setQuick] = useState(false);
   const [search, setSearch] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -97,10 +98,10 @@ export default function Tracker({ session }: { session: Session }) {
   // Los montos se ocultan en todos los componentes hijos mientras dure el modo privado.
   setPrivacy(priv);
 
-  const notify: Notify = useCallback((text) => {
-    setToast(text);
+  const notify: Notify = useCallback((text, undo) => {
+    setToast({ text, undo });
     clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 2600);
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 7000 : 2600);
   }, []);
 
   const setData: SetData = useCallback(
@@ -422,7 +423,7 @@ export default function Tracker({ session }: { session: Session }) {
             </div>
           </div>
           {tab === "panel" && <PanelTab data={data} onExport={() => setExporting(true)} onReport={downloadReport} notify={notify} />}
-          {tab === "gastos" && <GastosTab data={data} setData={setData} update={update} canReset={!owner} />}
+          {tab === "gastos" && <GastosTab data={data} setData={setData} update={update} canReset={!owner} notify={notify} />}
           {tab === "diario" && (
             <DiarioTab data={data} update={update} period={dailyPeriod} setPeriod={setDailyPeriod} notify={notify} />
           )}
@@ -461,7 +462,14 @@ export default function Tracker({ session }: { session: Session }) {
           <ExportForm data={data} onDone={() => setExporting(false)} notify={notify} />
         </Modal>
       )}
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && (
+        <div className={"toast " + (toast.undo ? "has-undo" : "")} role="status">
+          <span>{toast.text}</span>
+          {toast.undo && (
+            <button className="toast-undo" onClick={() => { const u = toast.undo!; setToast(null); u(); }}>Deshacer</button>
+          )}
+        </div>
+      )}
     </>
   );
 }

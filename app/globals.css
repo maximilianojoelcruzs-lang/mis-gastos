@@ -591,3 +591,13 @@ table.t td.neg{color:var(--bad);}
   .balchip.neg{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line));background:color-mix(in srgb,var(--bad) 8%,var(--surface));}
 }
 @media (max-width:420px){ .topbar .brand.with-bal b{display:none;} }
+
+/* ---------- Deshacer y papelera ---------- */
+.toast.has-undo{display:flex;align-items:center;gap:14px;padding:8px 8px 8px 14px;}
+.toast-undo{border:none;background:transparent;color:inherit;font:inherit;font-weight:700;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:6px 8px;border-radius:6px;white-space:nowrap;}
+.toast-undo:hover{background:color-mix(in srgb,var(--on-ink) 12%,transparent);}
+.trash-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap;}
+.trash-row:last-child{border-bottom:none;}
+.trash-row .n{flex:1;min-width:160px;display:flex;flex-direction:column;gap:2px;}
+.trash-row .n small{color:var(--muted);font-size:12px;}
+.trash-url{font-family:var(--font-mono),monospace;font-size:11.5px;color:var(--muted);word-break:break-all;}

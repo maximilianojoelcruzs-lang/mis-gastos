@@ -3,7 +3,7 @@
 // valida lo mismo que el front.
 import type {
   AisleId, AppData, BenefitCard, Category, CategoryId, DailyExpense, Expense, FrequentProduct, Market, MarketItem, Month,
-  GiftPerson, MonthSummary, Occasion, PaletteKey, Person, PricePoint, Priority, Purchase, Relation, Settlement, WishItem, YearSummary,
+  GiftPerson, MonthSummary, Occasion, PaletteKey, Person, PricePoint, Priority, Purchase, Relation, Settlement, TrashEntry, TrashKind, WishItem, YearSummary,
 } from "./types";
 import { uid } from "./format";
 
@@ -373,6 +373,7 @@ export function seedData(): AppData {
     wishlist: { items: [], people: [] },
     people: [],
     settlements: [],
+    trash: [],
   };
 }
 
@@ -625,7 +626,89 @@ export function normalize(raw: any): AppData {
     wishlist: normalizeWishlist(raw.wishlist),
     people,
     settlements,
+    trash: normalizeTrash(raw.trash),
   };
+}
+
+// ---------- Papelera ----------
+const TRASH_KINDS: TrashKind[] = ["compra", "persona", "diario", "cuenta", "enlace"];
+const TRASH_DAYS = 30;
+const TRASH_MAX = 150;
+
+function normalizeTrash(raw: any): TrashEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TrashEntry[] = [];
+  for (const t of raw) {
+    const at = str(t?.at);
+    const age = daysUntil(at.slice(0, 10));
+    if (!str(t?.id) || !TRASH_KINDS.includes(t?.kind) || age === null || age < -TRASH_DAYS) continue;
+    // Cada elemento se limita para que la papelera no infle el documento.
+    if (JSON.stringify(t.data ?? null).length > 20000) continue;
+    out.push({ id: t.id, at, kind: t.kind, label: str(t?.label).slice(0, 120), data: t.data ?? null });
+  }
+  return out.slice(-TRASH_MAX);
+}
+
+/** Guarda algo eliminado en la papelera. `id` lo genera quien llama, para poder deshacerlo. */
+export function toTrash(d: AppData, id: string, kind: TrashKind, label: string, data: unknown) {
+  d.trash.push({ id, at: new Date().toISOString(), kind, label: label.slice(0, 120), data: structuredClone(data) });
+  if (d.trash.length > TRASH_MAX) d.trash.splice(0, d.trash.length - TRASH_MAX);
+}
+
+/** Restaura algo de la papelera. Devuelve un mensaje para el usuario, o null si ya no estaba. */
+export function restoreTrash(d: AppData, id: string): string | null {
+  const t = d.trash.find((x) => x.id === id);
+  if (!t) return null;
+  d.trash = d.trash.filter((x) => x !== t);
+  const giftIds = () => d.wishlist.people.map((p) => p.id);
+  const raw = (t.data || {}) as any;
+  switch (t.kind) {
+    case "compra": {
+      const item = normalizeWish(raw, giftIds());
+      if (d.wishlist.items.some((i) => i.id === item.id)) item.id = uid();
+      d.wishlist.items.push(item);
+      return `Restaurado: ${item.name || "producto"}`;
+    }
+    case "persona": {
+      const [person] = normalizeGiftPeople([raw.person]);
+      if (!person) return null;
+      if (d.wishlist.people.some((p) => p.id === person.id)) person.id = uid();
+      d.wishlist.people.push(person);
+      const items = Array.isArray(raw.items) ? raw.items : [];
+      for (const i of items) d.wishlist.items.push({ ...normalizeWish({ ...i, for: person.id }, [person.id]), id: uid() });
+      return `Restaurado: ${person.name} y ${items.length} ${items.length === 1 ? "idea" : "ideas"}`;
+    }
+    case "diario": {
+      const x = normalizeDaily(raw, d.categories, d.people);
+      if (d.daily.some((y) => y.id === x.id)) x.id = uid();
+      // Al borrarlo se devolvió el saldo a la tarjeta: al restaurarlo se vuelve a cobrar.
+      x.cardAmount = x.card ? chargeCard(d.market, x.card, x.cardAmount) : 0;
+      d.daily.push(x);
+      return `Restaurado: ${x.name || "gasto"}`;
+    }
+    case "cuenta": {
+      const month = d.months.find((m) => m.id === raw.monthId) || d.months.find((m) => m.id === d.activeId) || d.months[0];
+      const item = normalizeExpense(raw.item, d.categories);
+      if (month.items.some((i) => i.id === item.id)) item.id = uid();
+      month.items.push(item);
+      return `Restaurado en ${month.label}: ${item.name || "cuenta"}`;
+    }
+    case "enlace": {
+      const url = str(raw.url);
+      const item = d.wishlist.items.find((i) => i.id === raw.itemId);
+      if (!url) return null;
+      if (!item) {
+        d.trash.push(t);
+        return "El producto ya no existe: copia el enlace desde la papelera";
+      }
+      const empty = item.urls.findIndex((u) => !u.trim());
+      if (item.urls.includes(url)) return `El enlace ya estaba en ${item.name}`;
+      if (empty >= 0) item.urls[empty] = url;
+      else item.urls.push(url);
+      return `Enlace restaurado en ${item.name || "el producto"}`;
+    }
+  }
+  return null;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

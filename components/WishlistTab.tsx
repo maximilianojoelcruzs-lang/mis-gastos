@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
-import { PALETTE, catColor } from "@/lib/data";
+import { useEffect, useRef, useState } from "react";
+import { PALETTE, catColor, restoreTrash, toTrash } from "@/lib/data";
 import { INTERESTS, OCCASIONS, RELATIONS, countdownText, nextDate, occasionOf, relationOf, suggestGifts } from "@/lib/gifts";
 import { clp, openUrl, uid } from "@/lib/format";
 import type { AppData, GiftPerson, Priority, WishItem } from "@/lib/types";
@@ -50,7 +50,28 @@ export default function WishlistTab({ data, update, notify }: Props) {
     update((d) => { const it = d.wishlist.items.find((i) => i.id === id); if (it) fn(it); });
   const onPerson = (id: string, fn: (p: GiftPerson) => void) =>
     update((d) => { const p = d.wishlist.people.find((x) => x.id === id); if (p) fn(p); });
-  const removeItem = (id: string) => update((d) => { d.wishlist.items = d.wishlist.items.filter((i) => i.id !== id); });
+  // Todo lo que se borra pasa por la papelera y se puede deshacer.
+  const undo = (tid: string) => () => update((d) => { restoreTrash(d, tid); });
+  const removeItem = (it: WishItem) => {
+    const tid = uid();
+    update((d) => {
+      d.wishlist.items = d.wishlist.items.filter((i) => i.id !== it.id);
+      toTrash(d, tid, "compra", it.name || "Producto sin nombre", it);
+    });
+    notify(`Eliminado: ${it.name || "producto"}`, undo(tid));
+  };
+  const trashUrl = (it: WishItem, url: string) => {
+    const tid = uid();
+    update((d) => { toTrash(d, tid, "enlace", `Enlace de ${it.name || "un producto"}`, { itemId: it.id, url }); });
+    return tid;
+  };
+  const removeUrl = (it: WishItem, idx: number) => {
+    const url = it.urls[idx] || "";
+    onItem(it.id, (x) => { x.urls.splice(idx, 1); if (!x.urls.length) x.urls = [""]; });
+    if (url.trim()) notify("Enlace eliminado", undo(trashUrl(it, url)));
+  };
+  // Si se borra o reemplaza un enlace escribiendo, el anterior queda en la papelera.
+  const urlBefore = useRef<Record<string, string>>({});
 
   const mine = items.filter((i) => !i.for);
   const minePending = mine.filter((i) => !i.done).sort((a, b) =>
@@ -86,11 +107,14 @@ export default function WishlistTab({ data, update, notify }: Props) {
   const deletePerson = (p: GiftPerson) => {
     const n = giftsOf(p.id).length;
     if (!confirm(n ? `¿Eliminar a ${p.name} y sus ${n} ideas de regalo?` : `¿Eliminar a ${p.name}?`)) return;
+    const tid = uid();
     update((d) => {
+      toTrash(d, tid, "persona", `${p.name} y sus ideas de regalo`, { person: p, items: d.wishlist.items.filter((i) => i.for === p.id) });
       d.wishlist.people = d.wishlist.people.filter((x) => x.id !== p.id);
       d.wishlist.items = d.wishlist.items.filter((i) => i.for !== p.id);
     });
     setEditPerson(null);
+    notify(`Eliminado: ${p.name}`, undo(tid));
   };
 
   const shareIdeas = async (p: GiftPerson) => {
@@ -176,12 +200,21 @@ export default function WishlistTab({ data, update, notify }: Props) {
               <span>Enlaces</span>
               {urls.map((url, idx) => (
                 <div className="url" key={idx}>
-                  <input className="field sm" value={url} placeholder="https://tienda.cl/producto"
+                  <input className="field sm" value={url} placeholder="https://tienda.cl/producto" aria-label="Enlace"
+                    onFocus={() => { urlBefore.current[`${it.id}:${idx}`] = url; }}
+                    onBlur={(e) => {
+                      const before = urlBefore.current[`${it.id}:${idx}`] || "";
+                      delete urlBefore.current[`${it.id}:${idx}`];
+                      if (before.trim() && before.trim() !== e.target.value.trim()) {
+                        trashUrl(it, before);
+                        notify("El enlace anterior quedó en la papelera (Ajustes → Papelera)");
+                      }
+                    }}
                     onChange={(e) => onItem(it.id, (x) => { if (!x.urls.length) x.urls = [""]; x.urls[idx] = e.target.value; })} />
                   <button className="btn icon sm" onClick={() => openUrl(url)} title="Abrir enlace" aria-label="Abrir enlace" disabled={!url}><IExternal size={13} /></button>
                   {urls.length > 1 && (
                     <button className="btn icon sm" title="Quitar enlace" aria-label="Quitar enlace"
-                      onClick={() => onItem(it.id, (x) => { x.urls.splice(idx, 1); if (!x.urls.length) x.urls = [""]; })}><IX size={13} /></button>
+                      onClick={() => removeUrl(it, idx)}><IX size={13} /></button>
                   )}
                 </div>
               ))}
@@ -194,7 +227,7 @@ export default function WishlistTab({ data, update, notify }: Props) {
                   <ISearch size={13} /> Buscar precios
                 </button>
               </div>
-              <button className="btn sm danger" onClick={() => { removeItem(it.id); setOpen(null); }}><ITrash size={13} /> Eliminar</button>
+              <button className="btn sm danger" onClick={() => { removeItem(it); setOpen(null); }}><ITrash size={13} /> Eliminar</button>
             </div>
           </div>
         )}

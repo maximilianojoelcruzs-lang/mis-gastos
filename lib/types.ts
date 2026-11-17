@@ -66,6 +66,11 @@ export type DailyExpense = {
   period: string;
 };
 
+export type TrashKind = "compra" | "persona" | "diario" | "cuenta" | "enlace";
+
+/** Algo eliminado. `data` guarda lo necesario para restaurarlo (se valida al restaurar). */
+export type TrashEntry = { id: string; at: string; kind: TrashKind; label: string; data: unknown };
+
 /** Persona con la que compartes gastos (pareja, roommate…). */
 export type Person = { id: string; name: string };
 
@@ -192,6 +197,8 @@ export type AppData = {
   wishlist: Wishlist;
   people: Person[];
   settlements: Settlement[];
+  /** Lo eliminado en los últimos 30 días, para restaurarlo. */
+  trash: TrashEntry[];
 };
 
 export type MonthSummary = {

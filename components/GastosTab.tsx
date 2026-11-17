@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { allTags, buildNextMonth, catColor, catOf, dueStatus, learnCategory, seedData, summarizeMonth, syncSuperLine } from "@/lib/data";
+import { allTags, buildNextMonth, catColor, catOf, dueStatus, learnCategory, seedData, restoreTrash, summarizeMonth, syncSuperLine, toTrash } from "@/lib/data";
 import { clp, uid } from "@/lib/format";
 import type { AppData, CategoryId, Expense, Income, Month } from "@/lib/types";
 import CurrencyInput from "./CurrencyInput";
@@ -9,11 +9,11 @@ import TagInput from "./TagInput";
 import {
   IAlert, ICheck, IClock, ILayers, IMore, IPlus, IRepeat, IRotate, ITarget, ITrash, IX,
 } from "./icons";
-import type { SetData, Update } from "./Tracker";
+import type { Notify, SetData, Update } from "./Tracker";
 
-type Props = { data: AppData; setData: SetData; update: Update; canReset: boolean };
+type Props = { data: AppData; setData: SetData; update: Update; canReset: boolean; notify: Notify };
 
-export default function GastosTab({ data, setData, update, canReset }: Props) {
+export default function GastosTab({ data, setData, update, canReset, notify }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<CategoryId | "all">("all");
 
@@ -331,7 +331,16 @@ export default function GastosTab({ data, setData, update, canReset }: Props) {
                           : "Deja el total de cuotas vacío si no es en cuotas."}
                       </span>
                       <button className="btn sm danger"
-                        onClick={() => { onMonth((m) => { m.items = m.items.filter((i) => i.id !== it.id); }); setOpen(null); }}>
+                        onClick={() => {
+                          const tid = uid();
+                          update((d) => {
+                            const m = d.months.find((x) => x.id === d.activeId)!;
+                            toTrash(d, tid, "cuenta", `${it.name || "Cuenta"} (${m.label})`, { monthId: m.id, item: it });
+                            m.items = m.items.filter((i) => i.id !== it.id);
+                          });
+                          setOpen(null);
+                          notify(`Eliminado: ${it.name || "cuenta"}`, () => update((d) => { restoreTrash(d, tid); }));
+                        }}>
                         <ITrash size={13} /> Eliminar
                       </button>
                     </div>

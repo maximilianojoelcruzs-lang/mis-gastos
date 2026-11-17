@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   allTags, balances, catColor, catOf, chargeCard, currentPeriod, dailyParts, dailyPeriod, daysInPeriod, learnCategory, limitAlert, limitStatus,
-  nextPeriod, periodName, refundCard, shiftPeriod, spentByCategory, summarizeMonth, todayISO,
+  nextPeriod, periodName, refundCard, restoreTrash, shiftPeriod, toTrash, spentByCategory, summarizeMonth, todayISO,
 } from "@/lib/data";
 import { clp, dayLabel, uid } from "@/lib/format";
 import type { AppData, CategoryId, DailyExpense } from "@/lib/types";
@@ -119,12 +119,18 @@ export default function DiarioTab({ data, update, period, setPeriod, notify }: P
         x.cardAmount = keep;
       }
     });
-  const deleteDaily = (id: string) =>
+  const deleteDaily = (id: string) => {
+    const tid = uid();
+    const item = data.daily.find((y) => y.id === id);
     update((dr) => {
       const x = dr.daily.find((y) => y.id === id);
-      if (x?.card && x.cardAmount > 0) refundCard(dr.market, x.card, x.cardAmount);
+      if (!x) return;
+      toTrash(dr, tid, "diario", `${x.name || "Gasto"} (${x.date})`, x);
+      if (x.card && x.cardAmount > 0) refundCard(dr.market, x.card, x.cardAmount);
       dr.daily = dr.daily.filter((y) => y.id !== id);
     });
+    notify(`Eliminado: ${item?.name || "gasto"}`, () => update((dr) => { restoreTrash(dr, tid); }));
+  };
   const setDailySplit = (id: string, v: SplitValue) =>
     update((dr) => {
       const x = dr.daily.find((y) => y.id === id);
